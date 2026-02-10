@@ -1,0 +1,56 @@
+# Training Pipeline Configuration
+
+experiment_name: hybrid_nids_baseline
+description: Baseline hybrid NIDS with default hyperparameters
+
+# Dataset configuration
+dataset:
+  name: nsl_kdd
+  config: configs/datasets/nsl_kdd.yaml
+  test_size: 0.3
+  random_state: 42
+  stratify: true
+
+# Preprocessing
+preprocessing:
+  apply_smote: true
+  smote_strategy: auto
+  smote_k_neighbors: 5
+  scaling_method: standard  # standard | minmax | robust
+
+# Feature selection
+feature_selection:
+  method: rfe  # rfe | importance | chi2
+  n_features: 20
+  estimator: random_forest
+
+# Model hyperparameters
+models:
+  tier1:
+    type: random_forest
+    config: configs/models/random_forest.yaml
+  tier2:
+    type: isolation_forest
+    config: configs/models/isolation_forest.yaml
+
+# Training settings
+training:
+  normal_label: Normal
+  save_preprocessor: true
+  save_feature_selector: true
+  save_intermediate: false
+
+# Evaluation
+evaluation:
+  compute_shap: true
+  plot_confusion_matrix: true
+  plot_pr_curve: true
+  plot_feature_importance: true
+  save_predictions: false
+
+# Output
+output:
+  base_dir: experiments/runs
+  save_models: true
+  save_metrics: true
+  save_plots: true
