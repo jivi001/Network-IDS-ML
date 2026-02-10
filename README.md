@@ -113,7 +113,7 @@ This is a **production-grade, hybrid Machine Learning system** for detecting net
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/Network-IDS-ML.git
+git clone https://github.com/jivi001/Network-IDS-ML.git
 cd Network-IDS-ML
 
 # Create virtual environment
@@ -220,7 +220,9 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 
 ## 📧 Contact
 
-For questions or support, please open an issue on GitHub or contact the maintainers.
+- **GitHub**: [@jivi001](https://github.com/jivi001)
+- **Email**: jiviteshgd28@gmail.com
+- **Issues**: [GitHub Issues](https://github.com/jivi001/Network-IDS-ML/issues)
 
 ---
 

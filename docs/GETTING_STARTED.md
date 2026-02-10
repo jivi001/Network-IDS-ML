@@ -19,7 +19,7 @@ Welcome! This guide will help you get up and running with the Network Intrusion 
 ### Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/Network-IDS-ML.git
+git clone https://github.com/jivi001/Network-IDS-ML.git
 cd Network-IDS-ML
 ```
 

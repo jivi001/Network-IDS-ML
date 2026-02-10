@@ -11,10 +11,12 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 setup(
     name="nids",
     version="1.0.0",
-    author="Network-IDS-ML Team",
+    author="jivi001",
+    author_email="jiviteshgd28@gmail.com",
     description="Production-grade Hybrid Network Intrusion Detection System",
     long_description=long_description,
     long_description_content_type="text/markdown",
+    url="https://github.com/jivi001/Network-IDS-ML",
     packages=find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",

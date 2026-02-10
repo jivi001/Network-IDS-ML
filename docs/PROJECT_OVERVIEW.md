@@ -121,7 +121,7 @@ Network-IDS-ML/
 
 ### Installation
 ```bash
-git clone https://github.com/yourusername/Network-IDS-ML.git
+git clone https://github.com/jivi001/Network-IDS-ML.git
 cd Network-IDS-ML
 python -m venv nids_env
 source nids_env/bin/activate  # Windows: nids_env\Scripts\activate
@@ -274,9 +274,10 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 📧 Support
 
+- **GitHub**: [@jivi001](https://github.com/jivi001)
+- **Email**: jiviteshgd28@gmail.com
+- **Issues**: [GitHub Issues](https://github.com/jivi001/Network-IDS-ML/issues)
 - **Documentation**: Check `docs/` directory
-- **Issues**: Open a GitHub issue
-- **Questions**: Contact maintainers
 
 ---
 
