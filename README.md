@@ -1,172 +1,208 @@
-# Network-IDS-ML: Production-Grade Hybrid NIDS
+# 🛡️ Network Intrusion Detection System (NIDS)
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+## What is This Project?
 
-A production-grade, research-ready **Hybrid Network Intrusion Detection System** combining:
-- **Random Forest** (Tier 1): Supervised detection of known attacks
-- **Isolation Forest** (Tier 2): Unsupervised zero-day anomaly detection
+This is a **production-grade, hybrid Machine Learning system** for detecting network intrusions and cyber attacks. It combines two complementary detection approaches:
 
-Supports **NSL-KDD**, **UNSW-NB15**, and **CIC-IDS2017** datasets.
+1. **Supervised Learning (Random Forest)** - Detects known attack patterns
+2. **Unsupervised Learning (Isolation Forest)** - Identifies zero-day anomalies
+
+### Key Features
+
+✅ **Hybrid Architecture**: Two-tier cascade system for comprehensive threat detection  
+✅ **Production-Ready**: Docker deployment with REST API  
+✅ **Research-Grade**: Cross-dataset evaluation, statistical testing, SHAP explainability  
+✅ **Security-Focused**: Optimized for high recall (minimizes missed attacks)  
+✅ **Configurable**: YAML-based configuration management  
+✅ **Reproducible**: Experiment tracking with versioned models  
+
+### Supported Datasets
+
+- **NSL-KDD**: Classic intrusion detection benchmark
+- **UNSW-NB15**: Modern network traffic dataset
+- **CIC-IDS2017**: Contemporary attack scenarios
 
 ---
 
-## 🚀 Quick Start
+## 📊 How This System Works
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Network Traffic                       │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+         ┌───────────────────────┐
+         │   Preprocessing       │
+         │   • Clean data        │
+         │   • Encode features   │
+         │   • Scale values      │
+         └───────────┬───────────┘
+                     │
+                     ▼
+         ┌───────────────────────┐
+         │   Feature Selection   │
+         │   • RFE (20 features) │
+         └───────────┬───────────┘
+                     │
+                     ▼
+         ┌───────────────────────┐
+         │   TIER 1: Random      │
+         │   Forest Classifier   │
+         └───────────┬───────────┘
+                     │
+            ┌────────┴────────┐
+            │                 │
+         Attack?           Normal?
+            │                 │
+            ▼                 ▼
+    ┌──────────────┐  ┌──────────────────┐
+    │ ALERT: Known │  │ TIER 2: Isolation│
+    │ Attack Type  │  │ Forest (Anomaly) │
+    └──────────────┘  └────────┬─────────┘
+                               │
+                      ┌────────┴────────┐
+                      │                 │
+                  Anomaly?          Normal?
+                      │                 │
+                      ▼                 ▼
+              ┌──────────────┐  ┌──────────┐
+              │ ALERT: Zero- │  │  PASS    │
+              │ Day Attack   │  │          │
+              └──────────────┘  └──────────┘
+```
+
+### Processing Pipeline
+
+1. **Data Loading**: Load network traffic from CSV files
+2. **Preprocessing**: 
+   - Clean numerical data (remove inf/NaN)
+   - Encode categorical features
+   - Scale features using StandardScaler
+   - Apply SMOTE for class balancing (training only)
+3. **Feature Selection**: Use RFE to select top 20 most important features
+4. **Training**:
+   - **Tier 1**: Train Random Forest on all labeled data
+   - **Tier 2**: Train Isolation Forest on normal traffic only
+5. **Prediction**:
+   - All traffic goes through Tier 1 first
+   - If classified as attack → immediate alert
+   - If classified as normal → pass to Tier 2
+   - Tier 2 checks for anomalies (zero-day attacks)
+6. **Evaluation**: Compute security-focused metrics (Recall, FNR, FAR)
+
+### Why This Architecture?
+
+- **Tier 1 (Random Forest)**: Excellent at recognizing known attack patterns with high accuracy
+- **Tier 2 (Isolation Forest)**: Catches novel attacks that weren't in training data
+- **Cascade Design**: Reduces false positives by filtering known attacks before anomaly detection
+
+---
+
+## 🚀 Quick Start Guide
+
+### Prerequisites
+
+- Python 3.8 or higher
+- pip package manager
+- (Optional) Docker for containerized deployment
 
 ### Installation
 
 ```bash
-# Clone repository
+# Clone the repository
 git clone https://github.com/yourusername/Network-IDS-ML.git
 cd Network-IDS-ML
 
 # Create virtual environment
 python -m venv nids_env
-source nids_env/bin/activate  # On Windows: nids_env\Scripts\activate
 
-# Install package
+# Activate virtual environment
+# Windows:
+nids_env\Scripts\activate
+# Linux/Mac:
+source nids_env/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Install package in development mode
 pip install -e .
 ```
 
-### Train a Model
+### Verify Installation
 
 ```bash
-python scripts/train.py --config configs/training/default.yaml
-```
-
-### Evaluate Model
-
-```bash
-python scripts/evaluate.py \
-  --model experiments/runs/hybrid_nids_baseline_20260210_213000/models \
-  --dataset data/raw/nsl_kdd_test.csv
-```
-
-### Cross-Dataset Evaluation
-
-```bash
-python scripts/cross_dataset_eval.py \
-  --source-model experiments/runs/exp_001/models \
-  --source-dataset nsl_kdd \
-  --target-dataset unsw_nb15 \
-  --target-data data/raw/unsw_nb15_test.csv
+python -c "from nids import HybridNIDS; print('✓ Installation successful!')"
 ```
 
 ---
 
-## 📁 Project Structure
+## 📚 Project Structure
 
 ```
 Network-IDS-ML/
-├── nids/                    # Core Python package
-│   ├── data/                # Data loading & validation
-│   ├── preprocessing/       # Preprocessing pipeline
-│   ├── features/            # Feature selection
-│   ├── models/              # Model implementations
-│   ├── evaluation/          # Metrics & statistical testing
-│   ├── explainability/      # SHAP interpretability
-│   ├── pipelines/           # Training/evaluation/inference
-│   └── utils/               # Config & logging utilities
-├── configs/                 # YAML configuration files
-├── scripts/                 # CLI entry points
-├── experiments/             # Experiment tracking
-├── deployment/              # Docker deployment
-└── tests/                   # Unit & integration tests
-```
-
----
-
-## 🔬 Key Features
-
-### Production-Ready
-- ✅ **Configuration-driven**: YAML-based hyperparameter management
-- ✅ **Experiment tracking**: Versioned models with full lineage
-- ✅ **Docker deployment**: Production inference service with REST API
-- ✅ **Comprehensive testing**: Unit + integration tests
-
-### Academic Rigor
-- ✅ **Cross-dataset evaluation**: Test generalization across datasets
-- ✅ **Statistical testing**: Repeated k-fold CV with significance tests
-- ✅ **SHAP explainability**: Feature importance for interpretability
-- ✅ **Data validation**: Schema checking and drift detection
-
-### Security-Focused
-- ✅ **Recall-optimized**: Minimizes false negatives (missed attacks)
-- ✅ **Hybrid architecture**: Known attacks + zero-day anomalies
-- ✅ **Class imbalance handling**: SMOTE for minority attack classes
-
----
-
-## 📊 Performance
-
-| Dataset | Recall | Precision | F1-Score |
-|---------|--------|-----------|----------|
-| NSL-KDD | 0.952  | 0.918     | 0.935    |
-| UNSW-NB15 | 0.931 | 0.905     | 0.918    |
-
-*Results from baseline configuration with default hyperparameters*
-
----
-
-## 🐳 Docker Deployment
-
-```bash
-# Build image
-docker build -t nids:v1.0.0 -f deployment/Dockerfile .
-
-# Run inference service
-docker-compose -f deployment/docker-compose.yml up -d
-
-# Test API
-curl -X POST http://localhost:8000/predict \
-  -H "Content-Type: application/json" \
-  -d '{"features": [0.5, 1.2, ..., 3.4]}'
+├── nids/                      # Core Python package
+│   ├── data/                  # Data loading & validation
+│   ├── preprocessing/         # Data preprocessing
+│   ├── features/              # Feature selection
+│   ├── models/                # ML models (RF, iForest, Hybrid)
+│   ├── evaluation/            # Metrics & testing
+│   ├── explainability/        # SHAP interpretability
+│   ├── pipelines/             # Training/evaluation/inference
+│   └── utils/                 # Config & logging
+├── configs/                   # YAML configuration files
+│   ├── datasets/              # Dataset configurations
+│   ├── models/                # Model hyperparameters
+│   └── training/              # Training pipeline configs
+├── scripts/                   # CLI entry points
+│   ├── train.py               # Training script
+│   ├── evaluate.py            # Evaluation script
+│   └── cross_dataset_eval.py  # Cross-dataset testing
+├── deployment/                # Docker deployment
+│   ├── Dockerfile             # Production image
+│   ├── docker-compose.yml     # Orchestration
+│   └── inference_api.py       # REST API
+├── data/                      # Dataset storage
+│   ├── raw/                   # Original datasets
+│   ├── processed/             # Preprocessed data
+│   └── interim/               # Intermediate files
+├── models/                    # Trained models
+│   ├── production/            # Production models
+│   └── baselines/             # Baseline models
+├── experiments/               # Experiment tracking
+│   ├── runs/                  # Individual experiments
+│   └── cross_dataset/         # Cross-dataset results
+├── tests/                     # Unit & integration tests
+├── docs/                      # Documentation
+├── requirements.txt           # Python dependencies
+├── setup.py                   # Package installation
+└── README.md                  # This file
 ```
 
 ---
 
 ## 📖 Documentation
 
-- **[Implementation Plan](docs/implementation_plan.md)** - Detailed refactoring roadmap
-- **[Pipeline Architecture](docs/pipeline_architecture.md)** - Training/evaluation/inference workflows
-- **[Migration Guide](docs/MIGRATION_GUIDE.md)** - Upgrade from old structure
-- **[API Reference](docs/API.md)** - Module documentation
+- **[GETTING_STARTED.md](docs/GETTING_STARTED.md)** - Beginner's guide
+- **[TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md)** - How to train models
+- **[DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** - Production deployment
+- **[DOCKER_GUIDE.md](docs/DOCKER_GUIDE.md)** - Docker containerization
+- **[API_REFERENCE.md](docs/API_REFERENCE.md)** - Code documentation
+- **[MIGRATION_GUIDE.md](docs/MIGRATION_GUIDE.md)** - Upgrade from old version
 
 ---
 
-## 🧪 Testing
+## 🎯 Performance
 
-```bash
-# Run all tests
-pytest tests/ -v
+| Dataset | Recall | Precision | F1-Score | Attack Detection |
+|---------|--------|-----------|----------|------------------|
+| NSL-KDD | 95.2% | 91.8% | 93.5% | 95.2% |
+| UNSW-NB15 | 93.1% | 90.5% | 91.8% | 93.1% |
 
-# Run with coverage
-pytest tests/ --cov=nids --cov-report=html
-
-# Run specific test suite
-pytest tests/unit/test_preprocessing.py -v
-```
-
----
-
-## 📝 Citation
-
-If you use this code in your research, please cite:
-
-```bibtex
-@software{network_ids_ml,
-  title={Network-IDS-ML: Production-Grade Hybrid Network Intrusion Detection System},
-  author={Your Name},
-  year={2026},
-  url={https://github.com/yourusername/Network-IDS-ML}
-}
-```
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+*Results from baseline configuration with default hyperparameters*
 
 ---
 
@@ -176,6 +212,21 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 
 ---
 
+## 📄 License
+
+This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
+
+---
+
 ## 📧 Contact
 
-For questions or issues, please open an issue on GitHub or contact [your.email@example.com](mailto:your.email@example.com).
+For questions or support, please open an issue on GitHub or contact the maintainers.
+
+---
+
+## 🙏 Acknowledgments
+
+- NSL-KDD dataset creators
+- UNSW-NB15 dataset creators
+- CIC-IDS2017 dataset creators
+- scikit-learn community

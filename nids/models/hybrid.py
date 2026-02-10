@@ -35,16 +35,15 @@ class HybridNIDS:
 
         rf_params = rf_params or {}
         iforest_params = iforest_params or {}
+        
+        # Set random_state if not already in params
+        if 'random_state' not in rf_params:
+            rf_params['random_state'] = random_state
+        if 'random_state' not in iforest_params:
+            iforest_params['random_state'] = random_state
 
-        self.tier1_model = SupervisedModel(
-            random_state=random_state,
-            **rf_params
-        )
-
-        self.tier2_model = UnsupervisedModel(
-            random_state=random_state,
-            **iforest_params
-        )
+        self.tier1_model = SupervisedModel(**rf_params)
+        self.tier2_model = UnsupervisedModel(**iforest_params)
 
         self.normal_label = None
         self.is_trained = False

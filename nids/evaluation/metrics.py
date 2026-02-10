@@ -31,9 +31,10 @@ class NIDSEvaluator:
     Prioritizes Recall (minimize missed attacks / False Negatives).
     """
 
-    def __init__(self, output_dir: str = 'logs'):
+    def __init__(self, output_dir: Optional[str] = 'logs'):
         self.output_dir = output_dir
-        os.makedirs(output_dir, exist_ok=True)
+        if output_dir is not None:
+            os.makedirs(output_dir, exist_ok=True)
 
     def evaluate(
         self,
@@ -157,9 +158,10 @@ class NIDSEvaluator:
         plt.xlabel('Predicted Label', fontsize=12)
         plt.tight_layout()
 
-        filepath = os.path.join(self.output_dir, 'confusion_matrix.png')
-        plt.savefig(filepath, dpi=300)
-        print(f"\n[Saved] Confusion Matrix -> {filepath}")
+        if self.output_dir is not None:
+            filepath = os.path.join(self.output_dir, 'confusion_matrix.png')
+            plt.savefig(filepath, dpi=300)
+            print(f"\n[Saved] Confusion Matrix -> {filepath}")
         plt.close()
 
     def _plot_precision_recall_curve(
@@ -187,9 +189,10 @@ class NIDSEvaluator:
             plt.grid(alpha=0.3)
             plt.tight_layout()
 
-            filepath = os.path.join(self.output_dir, 'precision_recall_curve.png')
-            plt.savefig(filepath, dpi=300)
-            print(f"[Saved] Precision-Recall Curve -> {filepath}")
+            if self.output_dir is not None:
+                filepath = os.path.join(self.output_dir, 'precision_recall_curve.png')
+                plt.savefig(filepath, dpi=300)
+                print(f"[Saved] Precision-Recall Curve -> {filepath}")
             plt.close()
         except Exception as e:
             print(f"[Warning] Could not plot PR curve: {e}")
@@ -217,9 +220,10 @@ class NIDSEvaluator:
         plt.gca().invert_yaxis()
         plt.tight_layout()
 
-        filepath = os.path.join(self.output_dir, 'feature_importance.png')
-        plt.savefig(filepath, dpi=300)
-        print(f"[Saved] Feature Importance -> {filepath}")
+        if self.output_dir is not None:
+            filepath = os.path.join(self.output_dir, 'feature_importance.png')
+            plt.savefig(filepath, dpi=300)
+            print(f"[Saved] Feature Importance -> {filepath}")
         plt.close()
 
     def evaluate_tier_stats(
