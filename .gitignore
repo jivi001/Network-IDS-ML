@@ -1,0 +1,28 @@
+/nids_env
+/__pycache__/
+*.pyc
+/data/
+# Datasets
+data/raw/
+data/processed/
+*.csv
+*.png
+*.pkl
+*.h5
+*.model
+*.pth
+```
+# Logs
+*.log
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# IDEs
+.vscode/
+.idea/
+
+# Models
+models/
+*.pkl
+```
