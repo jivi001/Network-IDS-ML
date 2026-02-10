@@ -36,6 +36,31 @@ Network Traffic → Preprocessing → Feature Selection → Tier 1 (RF)
 - **Dataset Support**: Compatible with NSL-KDD, UNSW-NB15, CIC-IDS2017
 - **Visualization**: Confusion matrix, Precision-Recall curves, feature importance
 
+## 📚 Documentation
+
+Comprehensive documentation is available in the `docs/` directory:
+
+- **[Methodology](docs/Methodology.md)**: Complete research methodology suitable for academic papers and final-year projects
+  - Problem formulation (ML vs signature-based IDS)
+  - Dataset justification (NSL-KDD, UNSW-NB15, CIC-IDS2017)
+  - Preprocessing pipeline (cleaning, encoding, scaling, SMOTE)
+  - Model architecture (Random Forest, SVM, Isolation Forest)
+  - Hybrid cascade workflow
+  - Evaluation metrics and limitations
+
+- **[Repository Refactoring Proposal](docs/Repository_Refactoring_Proposal.md)**: Production-grade project structure
+  - Modular architecture design
+  - Configuration management
+  - Experiment tracking
+  - Deployment artifacts
+  - SOC/industry alignment
+
+- **[Implementation Guide](docs/IMPLEMENTATION_GUIDE.md)**: Step-by-step refactoring instructions
+  - Phase-by-phase migration plan
+  - PowerShell commands for Windows
+  - Code examples and troubleshooting
+  - Testing procedures
+
 ## 📦 Installation
 
 ### Prerequisites
