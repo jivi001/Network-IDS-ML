@@ -3,5 +3,8 @@ pandas
 scikit-learn
 matplotlib
 seaborn
-imblearn
+imbalanced-learn
+joblib
+requests
+tabulate
 jupyter

@@ -1,139 +1,112 @@
-"""
-Feature selection module using Random Forest importance.
-"""
-
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
-from typing import List, Tuple
+from sklearn.feature_selection import RFE
+from typing import List, Tuple, Optional
 
 
 class FeatureSelector:
-    """
-    Select top features using Random Forest feature importance.
-    """
-    
+
     def __init__(
-        self, 
+        self,
         n_features: int = 20,
         random_state: int = 42
     ):
-        """
-        Initialize feature selector.
-        
-        Args:
-            n_features: Number of top features to select
-            random_state: Seed for reproducibility
-        """
         self.n_features = n_features
         self.random_state = random_state
-        self.selected_features = []
+        self.selected_indices = []
+        self.selected_feature_names = []
         self.feature_importances = {}
         self.is_fitted = False
-        
+        self.rfe_model = None
+
     def fit(
-        self, 
-        X: np.ndarray, 
+        self,
+        X: np.ndarray,
         y: np.ndarray,
-        feature_names: List[str]
+        feature_names: Optional[List[str]] = None
     ):
         """
-        Fit Random Forest and extract feature importances.
+        Fit RFE (Recursive Feature Elimination) to select top features.
         
         Args:
-            X: Feature array
+            X: Feature array (n_samples, n_features)
             y: Labels
-            feature_names: List of feature names
-            
-        Returns:
-            self
+            feature_names: Optional list of feature names
         """
-        # Train a Random Forest for feature importance
+        n_cols = X.shape[1]
+        if feature_names is None:
+            feature_names = [f'feature_{i}' for i in range(n_cols)]
+
+        print(f"[FeatureSelector] Starting RFE to select top {self.n_features} features...")
+
+        # Use a lightweight RF for RFE to ensure speed
         rf = RandomForestClassifier(
-            n_estimators=100,
+            n_estimators=50,       # Reduced from 100 for speed during RFE
             max_depth=10,
             random_state=self.random_state,
-            n_jobs=-1
+            n_jobs=-1,
+            class_weight='balanced'
+        )
+
+        # Initialize RFE
+        # step=0.1 means remove 10% of least important features at each iteration
+        self.rfe_model = RFE(
+            estimator=rf,
+            n_features_to_select=self.n_features,
+            step=0.1,
+            verbose=1
         )
         
-        rf.fit(X, y)
+        self.rfe_model.fit(X, y)
+
+        # Get selected features
+        self.selected_mask = self.rfe_model.support_
+        self.selected_indices = np.where(self.selected_mask)[0].tolist()
+        self.selected_feature_names = [feature_names[i] for i in self.selected_indices]
         
-        # Get importances
-        importances = rf.feature_importances_
-        
-        # Create importance dictionary
-        self.feature_importances = {
-            name: imp for name, imp in zip(feature_names, importances)
-        }
-        
-        # Sort and select top N
-        sorted_features = sorted(
-            self.feature_importances.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
-        
-        self.selected_features = [
-            name for name, _ in sorted_features[:self.n_features]
-        ]
-        
+        # Store importances of the underlying estimator (for the selected features)
+        # Note: RFE estimator_ attribute is the estimator fitted on the selected features
+        if hasattr(self.rfe_model.estimator_, 'feature_importances_'):
+            importances = self.rfe_model.estimator_.feature_importances_
+            self.feature_importances = {
+                name: float(imp) 
+                for name, imp in zip(self.selected_feature_names, importances)
+            }
+        else:
+            # Fallback if no importances available
+            self.feature_importances = {name: 1.0 for name in self.selected_feature_names}
+
         self.is_fitted = True
-        
-        print(f"[FeatureSelector] Selected top {len(self.selected_features)} features")
-        print(f"Top 5: {self.selected_features[:5]}")
-        
+
+        print(f"[FeatureSelector] RFE Complete. Selected {len(self.selected_indices)} features.")
+        print(f"  Top 5 Selected: {self.selected_feature_names[:5]}")
+
         return self
-    
-    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
-        """
-        Select only the top features from DataFrame.
-        
-        Args:
-            X: Feature DataFrame
-            
-        Returns:
-            DataFrame with selected features only
-        """
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
         if not self.is_fitted:
             raise RuntimeError("FeatureSelector must be fitted before transform")
-        
-        # Filter to selected features
-        available_features = [f for f in self.selected_features if f in X.columns]
-        
-        if len(available_features) < len(self.selected_features):
-            missing = set(self.selected_features) - set(available_features)
-            print(f"[Warning] Missing features in transform: {missing}")
-        
-        return X[available_features]
-    
+        return self.rfe_model.transform(X)
+
     def fit_transform(
-        self, 
-        X_array: np.ndarray,
+        self,
+        X: np.ndarray,
         y: np.ndarray,
-        feature_names: List[str],
-        X_df: pd.DataFrame
-    ) -> pd.DataFrame:
-        """
-        Fit and transform in one step.
-        
-        Args:
-            X_array: Feature array for fitting RF
-            y: Labels
-            feature_names: List of all feature names
-            X_df: DataFrame to transform
-            
-        Returns:
-            Transformed DataFrame
-        """
-        self.fit(X_array, y, feature_names)
-        return self.transform(X_df)
-    
+        feature_names: Optional[List[str]] = None
+    ) -> np.ndarray:
+        """Fit and transform in one step."""
+        self.fit(X, y, feature_names)
+        return self.transform(X)
+
     def get_feature_importance_ranking(self) -> List[Tuple[str, float]]:
-        """
-        Return sorted list of (feature_name, importance).
-        """
+        """Return sorted list of (feature_name, importance) for selected features."""
         return sorted(
             self.feature_importances.items(),
             key=lambda x: x[1],
             reverse=True
         )
+
+    def get_selected_names(self) -> List[str]:
+        """Return list of selected feature names."""
+        return self.selected_feature_names
