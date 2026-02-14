@@ -103,7 +103,7 @@ class NIDSEvaluator:
             'precision': precision,
             'f1_score': f1,
             'f2_score': f2,
-            'confusion_matrix': cm,
+            'confusion_matrix': cm.tolist(),
             'classification_report': report,
             **sec_metrics
         }

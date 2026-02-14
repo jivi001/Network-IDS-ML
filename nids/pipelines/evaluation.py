@@ -57,11 +57,14 @@ class EvaluationPipeline:
         
         # Evaluate
         evaluator = NIDSEvaluator(output_dir=str(self.output_dir))
+        # Add Zero_Day_Anomaly to labels
+        all_labels = sorted(set(y_test.values) | {'Zero_Day_Anomaly'})
+
         metrics = evaluator.evaluate(
             y_true=y_test.values,
             y_pred=predictions,
             y_proba=detailed['tier1_probabilities'],
-            labels=sorted(set(y_test.values)),
+            labels=all_labels,
             normal_label='Normal'
         )
         

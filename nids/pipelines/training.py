@@ -24,10 +24,10 @@ class TrainingPipeline:
     
     def __init__(self, config_path: str):
         self.config = load_config(config_path)
-        self.logger = setup_logger('training')
         self.experiment_id = self._generate_experiment_id()
         self.output_dir = Path(self.config.get('output', {}).get('base_dir', 'experiments/runs')) / self.experiment_id
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.logger = setup_logger('training', log_file=str(self.output_dir / 'training.log'))
         
     def _generate_experiment_id(self) -> str:
         """Generate unique experiment ID."""
@@ -126,6 +126,7 @@ class TrainingPipeline:
         feature_config = self.config['feature_selection']
         selector = FeatureSelector(
             n_features=feature_config.get('n_features', 20),
+            method=feature_config.get('method', 'rfe'),
             random_state=self.config['dataset'].get('random_state', 42)
         )
         
@@ -167,11 +168,14 @@ class TrainingPipeline:
         predictions, tier_flags = model.predict(X_test)
         detailed = model.predict_with_scores(X_test)
         
+        # Add Zero_Day_Anomaly to labels if it might be predicted
+        all_labels = sorted(set(y_test) | {'Zero_Day_Anomaly'})
+        
         metrics = evaluator.evaluate(
             y_true=y_test,
             y_pred=predictions,
             y_proba=detailed['tier1_probabilities'],
-            labels=sorted(set(y_test)),
+            labels=all_labels,
             normal_label=self.config['training'].get('normal_label', 'Normal')
         )
         

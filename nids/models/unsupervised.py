@@ -20,15 +20,19 @@ class UnsupervisedModel:
         contamination: float = 0.05,
         n_estimators: int = 200,
         random_state: int = 42,
-        n_jobs: int = -1
+        n_jobs: int = -1,
+        **kwargs
     ):
-        self.model = IsolationForest(
-            contamination=contamination,
-            n_estimators=n_estimators,
-            random_state=random_state,
-            n_jobs=n_jobs,
-            bootstrap=False
-        )
+        params = {
+            'contamination': contamination,
+            'n_estimators': n_estimators,
+            'random_state': random_state,
+            'n_jobs': n_jobs,
+            'bootstrap': False
+        }
+        params.update(kwargs)
+
+        self.model = IsolationForest(**params)
         self.is_trained = False
         self.threshold = None
 

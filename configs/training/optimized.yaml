@@ -1,7 +1,7 @@
-# Training Pipeline Configuration
+# Optimized Training Pipeline Configuration
 
-experiment_name: hybrid_nids_baseline
-description: Baseline hybrid NIDS with default hyperparameters
+experiment_name: hybrid_nids_optimized
+description: Optimized hybrid NIDS with tuned hyperparameters
 
 # Dataset configuration
 dataset:
@@ -16,19 +16,19 @@ preprocessing:
   apply_smote: true
   smote_strategy: auto
   smote_k_neighbors: 5
-  scaling_method: standard # standard | minmax | robust
+  scaling_method: standard
 
-# Feature selection
+# Feature selection (Fast)
 feature_selection:
-  method: importance # OPTIMIZED: 'importance' is much faster than 'rfe' for baseline
-  n_features: 20
+  method: importance
+  n_features: 40
   estimator: random_forest
 
 # Model hyperparameters
 models:
   tier1:
     type: random_forest
-    config: configs/models/random_forest.yaml
+    config: configs/models/random_forest_optimized.yaml
   tier2:
     type: isolation_forest
     config: configs/models/isolation_forest.yaml
@@ -42,7 +42,7 @@ training:
 
 # Evaluation
 evaluation:
-  compute_shap: true
+  compute_shap: false
   plot_confusion_matrix: true
   plot_pr_curve: true
   plot_feature_importance: true

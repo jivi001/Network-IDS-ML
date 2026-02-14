@@ -43,7 +43,7 @@ def main():
     print(f"Experiment ID: {experiment_id}")
     print(f"Recall: {metrics['recall']:.4f}")
     print(f"Precision: {metrics['precision']:.4f}")
-    print(f"F1-Score: {metrics['f1']:.4f}")
+    print(f"F1-Score: {metrics['f1_score']:.4f}")
     print(f"\nResults saved to: {pipeline.output_dir}")
     print(f"{'='*70}\n")
 

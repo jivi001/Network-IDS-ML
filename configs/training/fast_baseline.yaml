@@ -1,7 +1,8 @@
-# Training Pipeline Configuration
+# Optimized Baseline Configuration (Fast)
+# Replaces slow RFE with SelectFromModel to get quick baseline metrics.
 
-experiment_name: hybrid_nids_baseline
-description: Baseline hybrid NIDS with default hyperparameters
+experiment_name: hybrid_nids_fast_baseline
+description: Baseline hybrid NIDS with faster feature selection
 
 # Dataset configuration
 dataset:
@@ -16,11 +17,11 @@ preprocessing:
   apply_smote: true
   smote_strategy: auto
   smote_k_neighbors: 5
-  scaling_method: standard # standard | minmax | robust
+  scaling_method: standard
 
-# Feature selection
+# Feature selection (OPTIMIZED: Use 'importance' instead of 'rfe')
 feature_selection:
-  method: importance # OPTIMIZED: 'importance' is much faster than 'rfe' for baseline
+  method: importance
   n_features: 20
   estimator: random_forest
 
@@ -42,7 +43,7 @@ training:
 
 # Evaluation
 evaluation:
-  compute_shap: true
+  compute_shap: false # Disable SHAP for speed
   plot_confusion_matrix: true
   plot_pr_curve: true
   plot_feature_importance: true

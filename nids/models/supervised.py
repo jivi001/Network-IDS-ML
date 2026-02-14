@@ -22,17 +22,22 @@ class SupervisedModel:
         max_depth: Optional[int] = 20,
         min_samples_split: int = 5,
         random_state: int = 42,
-        n_jobs: int = -1
+        n_jobs: int = -1,
+        **kwargs
     ):
-        self.model = RandomForestClassifier(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
-            min_samples_split=min_samples_split,
-            criterion='gini',
-            random_state=random_state,
-            n_jobs=n_jobs,
-            class_weight='balanced'
-        )
+        # Merge explicit args with kwargs for complete config
+        params = {
+            'n_estimators': n_estimators,
+            'max_depth': max_depth,
+            'min_samples_split': min_samples_split,
+            'criterion': 'gini',
+            'random_state': random_state,
+            'n_jobs': n_jobs,
+            'class_weight': 'balanced'
+        }
+        params.update(kwargs)
+        
+        self.model = RandomForestClassifier(**params)
         self.is_trained = False
 
     def train(self, X: np.ndarray, y: np.ndarray):
