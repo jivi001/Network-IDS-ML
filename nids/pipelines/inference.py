@@ -52,7 +52,9 @@ class InferencePipeline:
         import pandas as pd
         
         # Convert to DataFrame for preprocessing
-        if isinstance(features, np.ndarray):
+        if isinstance(features, list):
+            features = pd.DataFrame([features], columns=self.preprocessor.get_feature_names())
+        elif isinstance(features, np.ndarray):
             if features.ndim == 1:
                 features = features.reshape(1, -1)
             features = pd.DataFrame(features, columns=self.preprocessor.get_feature_names())

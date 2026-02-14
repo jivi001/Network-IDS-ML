@@ -53,7 +53,7 @@ def predict():
         if 'features' not in data:
             return jsonify({'error': 'Missing features field'}), 400
         
-        features = np.array(data['features'])
+        features = data['features']
         result = pipeline.predict_single(features)
         
         return jsonify(result)
