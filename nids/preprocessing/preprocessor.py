@@ -31,6 +31,7 @@ class NIDSPreprocessor:
 
     def __init__(self, random_state: int = 42):
         self.random_state = random_state
+        self.missing_token = 'MISSING'
 
         # Components
         self.label_encoders = {}
@@ -65,7 +66,17 @@ class NIDSPreprocessor:
         # 2. Fit label encoders
         for col in self.categorical_cols:
             le = LabelEncoder()
-            le.fit(X[col].astype(str).fillna('MISSING'))
+            values = X[col].fillna(self.missing_token).astype(str)
+
+            # Ensure fallback token is always available for unseen categories
+            # during inference.
+            if self.missing_token not in values.values:
+                values = pd.concat(
+                    [values, pd.Series([self.missing_token])],
+                    ignore_index=True
+                )
+
+            le.fit(values)
             self.label_encoders[col] = le
 
         # Encode categoricals for fitting imputer/scaler
@@ -130,9 +141,9 @@ class NIDSPreprocessor:
             if col not in X_encoded.columns:
                 continue
             le = self.label_encoders[col]
-            X_encoded[col] = X_encoded[col].astype(str).fillna('MISSING')
+            X_encoded[col] = X_encoded[col].fillna(self.missing_token).astype(str)
             X_encoded[col] = X_encoded[col].apply(
-                lambda x: x if x in le.classes_ else 'MISSING'
+                lambda x: x if x in le.classes_ else self.missing_token
             )
             X_encoded[col] = le.transform(X_encoded[col])
         return X_encoded
