@@ -39,6 +39,8 @@ training:
   save_preprocessor: true
   save_feature_selector: true
   save_intermediate: false
+  cross_validate: false # Set to true to run StratifiedKFold CV before final fit
+  cv_folds: 5 # Number of CV folds (used only when cross_validate: true)
 
 # Evaluation
 evaluation:

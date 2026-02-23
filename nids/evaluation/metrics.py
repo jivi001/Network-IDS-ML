@@ -13,6 +13,8 @@ from sklearn.metrics import (
     classification_report,
     confusion_matrix,
     precision_recall_curve,
+    roc_curve,
+    roc_auc_score,
     auc,
     f1_score,
     fbeta_score,
@@ -97,12 +99,18 @@ class NIDSEvaluator:
         if y_proba is not None:
             self._plot_precision_recall_curve(y_true, y_proba, normal_label)
 
+        # --- ROC Curve ---
+        roc_auc = None
+        if y_proba is not None:
+            roc_auc = self._plot_roc_curve(y_true, y_proba, normal_label)
+
         return {
             'accuracy': accuracy,
             'recall': recall,
             'precision': precision,
             'f1_score': f1,
             'f2_score': f2,
+            'roc_auc': roc_auc,
             'confusion_matrix': cm.tolist(),
             'classification_report': report,
             **sec_metrics
@@ -196,6 +204,39 @@ class NIDSEvaluator:
             plt.close()
         except Exception as e:
             print(f"[Warning] Could not plot PR curve: {e}")
+
+    def _plot_roc_curve(self, y_true: np.ndarray, y_proba: np.ndarray, normal_label: str) -> float:
+        """Plot ROC curve and return ROC-AUC for attack detection (binary)."""
+        try:
+            y_true_binary = (np.array(y_true) != normal_label).astype(int)
+
+            if y_proba.ndim > 1:
+                y_score = 1 - y_proba[:, 0]
+            else:
+                y_score = y_proba
+
+            roc_auc = roc_auc_score(y_true_binary, y_score)
+            fpr, tpr, _ = roc_curve(y_true_binary, y_score)
+
+            plt.figure(figsize=(10, 6))
+            plt.plot(fpr, tpr, linewidth=2, label=f'ROC Curve (AUC = {roc_auc:.4f})')
+            plt.plot([0, 1], [0, 1], 'k--', linewidth=1, label='Random')
+            plt.xlabel('False Positive Rate (False Alarm Rate)', fontsize=12)
+            plt.ylabel('True Positive Rate (Detection Rate)', fontsize=12)
+            plt.title('ROC Curve — Attack Detection', fontsize=16, fontweight='bold')
+            plt.legend(loc='lower right')
+            plt.grid(alpha=0.3)
+            plt.tight_layout()
+
+            if self.output_dir is not None:
+                filepath = os.path.join(self.output_dir, 'roc_curve.png')
+                plt.savefig(filepath, dpi=300)
+                print(f"[Saved] ROC Curve (AUC={roc_auc:.4f}) -> {filepath}")
+            plt.close()
+            return roc_auc
+        except Exception as e:
+            print(f"[Warning] Could not plot ROC curve: {e}")
+            return None
 
     def plot_feature_importance(
         self,

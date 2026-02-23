@@ -17,40 +17,19 @@ A **production-grade Hybrid Machine Learning system** for detecting network intr
 
 ## 🧠 How It Works
 
-```
-Network Traffic
-     │
-     ▼
-┌─────────────────────┐
-│   Preprocessing     │  Clean, encode, scale
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  Feature Selection  │  Top-N features via importance/RFE
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│  TIER 1: Random     │  Known attack classification
-│  Forest             │
-└──────────┬──────────┘
-           │
-     ┌─────┴──────┐
-  Attack?       Normal?
-     │              │
-     ▼              ▼
-  ALERT        ┌──────────────────┐
-  Known        │  TIER 2:         │  Zero-day detection
-  Attack       │  Isolation Forest│
-               └──────┬───────────┘
-                       │
-                ┌──────┴──────┐
-            Anomaly?        Normal?
-                │               │
-                ▼               ▼
-           ALERT: Zero      PASS (benign)
-           Day Attack
+```mermaid
+flowchart TD
+    A["🌐 Network Traffic"] --> B["⚙️ Preprocessing
+Clean · Encode · Scale"]
+    B --> C["🔍 Feature Selection
+importance / RFE — Top-N features"]
+    C --> D["🌲 Tier 1: Random Forest
+Known Attack Classification"]
+    D -- "⚡ Attack detected" --> E["🚨 ALERT — Known Attack"]
+    D -- "✅ Classified as Normal" --> F["🏝️ Tier 2: Isolation Forest
+Zero-Day Anomaly Detection"]
+    F -- "🔴 Anomaly" --> G["🚨 ALERT — Zero-Day Attack"]
+    F -- "🟢 Normal" --> H["✅ PASS — Benign Traffic"]
 ```
 
 ---
@@ -82,21 +61,17 @@ nids_env\Scripts\activate      # Windows
 pip install -r requirements.txt
 ```
 
-### 2. Prepare Your Dataset
-
-#### Option A — NSL-KDD
-
-Place `nsl_kdd_train.csv` and `nsl_kdd_test.csv` in `data/raw/`. (Already supported out of the box.)
-
-#### Option B — UNSW-NB15 _(Recommended)_
-
-1. Download the 4 CSV files from the [UNSW-NB15 dataset page](https://research.unsw.edu.au/projects/unsw-nb15-dataset)
-2. Place them in `data/raw/UNSW-NB15/`
-3. Run the prep script:
+### 2. Download Dataset
 
 ```powershell
-python scripts/prepare_unsw_nb15.py
+# Automated download (NSL-KDD public mirror)
+python scripts/download_data.py --dataset nsl-kdd
+
+# UNSW-NB15 (will prompt with manual download link as it requires registration)
+python scripts/download_data.py --dataset unsw-nb15
 ```
+
+Or place files manually in `data/raw/`.
 
 ### 3. Train
 
@@ -148,9 +123,9 @@ Network-IDS-ML/
 │   ├── evaluate.py              # Evaluation CLI
 │   └── cross_dataset_eval.py   # Cross-dataset benchmarking
 ├── deployment/
-│   ├── Dockerfile
+│   ├── Dockerfile               # python:3.11-slim
 │   ├── docker-compose.yml
-│   └── inference_api.py         # Flask REST API
+│   └── inference_api.py         # FastAPI REST API (Swagger at /docs)
 ├── data/
 │   ├── raw/                     # Original dataset files (git-ignored)
 │   │   ├── UNSW-NB15/           # Raw UNSW-NB15 CSVs
@@ -164,6 +139,16 @@ Network-IDS-ML/
 ├── notebooks/
 │   └── exploration.ipynb
 ├── tests/
+│   ├── unit/
+│   │   ├── test_models.py
+│   │   ├── test_inference.py
+│   │   └── test_preprocessor.py
+│   └── integration/
+│       └── test_api.py
+├── .github/
+│   └── workflows/
+│       └── ci.yml               # Lint + test + Docker build
+├── .env.example                 # Environment variable template
 ├── docs/
 ├── requirements.txt
 ├── setup.py
@@ -193,7 +178,12 @@ cd deployment
 docker-compose up --build
 ```
 
-API will be available at `http://localhost:5000`. See [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) for full API reference.
+API will be available at `http://localhost:8000`.
+
+- **Swagger UI**: http://localhost:8000/docs
+- **Health check**: http://localhost:8000/health
+
+See [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) for full API reference.
 
 ---
 

@@ -8,7 +8,8 @@ from datetime import datetime
 import yaml
 import json
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+from sklearn.ensemble import RandomForestClassifier
 
 from nids.data import DataLoader
 from nids.preprocessing import NIDSPreprocessor
@@ -139,22 +140,40 @@ class TrainingPipeline:
         return X_train_selected, X_test_selected
     
     def _train_models(self, X_train, y_train):
-        """Train Hybrid NIDS."""
+        """Train Hybrid NIDS with optional cross-validation."""
         # Load model configs
         tier1_config = load_config(self.config['models']['tier1']['config'])
         tier2_config = load_config(self.config['models']['tier2']['config'])
-        
+
+        # --- Optional cross-validation (Tier 1 only, fast diagnostic) ---
+        if self.config.get('training', {}).get('cross_validate', False):
+            n_folds = self.config['training'].get('cv_folds', 5)
+            self.logger.info(f"Running {n_folds}-fold stratified cross-validation...")
+            rf_params = {**tier1_config['hyperparameters']}
+            rf_params.setdefault('random_state', self.config['dataset'].get('random_state', 42))
+            cv_model = RandomForestClassifier(**rf_params)
+            cv = StratifiedKFold(n_splits=n_folds, shuffle=True,
+                                  random_state=self.config['dataset'].get('random_state', 42))
+            cv_scores = cross_val_score(cv_model, X_train, y_train, cv=cv,
+                                        scoring='recall_weighted', n_jobs=-1)
+            self.logger.info(
+                f"CV Recall (weighted): {cv_scores.mean():.4f} ± {cv_scores.std():.4f}"
+            )
+            self.cv_scores = cv_scores.tolist()
+        else:
+            self.cv_scores = None
+
         model = HybridNIDS(
             rf_params=tier1_config['hyperparameters'],
             iforest_params=tier2_config['hyperparameters'],
             random_state=self.config['dataset'].get('random_state', 42)
         )
-        
+
         model.train(
             X_train, y_train,
             normal_label=self.config['training'].get('normal_label', 'Normal')
         )
-        
+
         self.logger.info("Model training complete")
         return model
     
@@ -233,5 +252,19 @@ class TrainingPipeline:
         }
         with open(self.output_dir / 'metadata.json', 'w') as f:
             json.dump(metadata, f, indent=2)
-        
+
+        # Save feature list alongside model artifacts
+        if hasattr(self, 'selector') and self.selector is not None:
+            feature_list = self.selector.get_selected_names()
+            features_path = models_dir / 'features.json'
+            with open(features_path, 'w') as f:
+                json.dump({'features': feature_list, 'n_features': len(feature_list)}, f, indent=2)
+            self.logger.info(f"Feature list saved: {features_path}")
+
+        # Save CV scores if available
+        if hasattr(self, 'cv_scores') and self.cv_scores is not None:
+            metrics['cv_recall_mean'] = float(np.mean(self.cv_scores))
+            metrics['cv_recall_std'] = float(np.std(self.cv_scores))
+            metrics['cv_recall_scores'] = self.cv_scores
+
         self.logger.info(f"Artifacts saved to {self.output_dir}")

@@ -77,3 +77,6 @@ docs/_build/
 *.tmp
 *.bak
 *.orig
+
+# ─── Environment / Secrets ────────────────────────────────────────────────────
+.env
