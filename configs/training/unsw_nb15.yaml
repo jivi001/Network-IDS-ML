@@ -1,0 +1,55 @@
+# UNSW-NB15 Training Configuration
+
+experiment_name: unsw_nb15_baseline
+
+# Dataset
+dataset:
+  name: unsw_nb15
+  config: configs/datasets/unsw_nb15.yaml
+  test_size: 0.2
+  random_state: 42
+  stratify: true
+
+# Preprocessing
+preprocessing:
+  apply_smote: true
+  smote_strategy: auto
+  smote_k_neighbors: 5
+  scaling_method: standard
+
+# Feature selection (fast importance-based)
+feature_selection:
+  method: importance
+  n_features: 20
+  estimator: random_forest
+
+# Models
+models:
+  tier1:
+    type: random_forest
+    config: configs/models/random_forest.yaml
+  tier2:
+    type: isolation_forest
+    config: configs/models/isolation_forest.yaml
+
+# Training
+training:
+  normal_label: Normal
+  save_preprocessor: true
+  save_feature_selector: true
+  save_intermediate: false
+
+# Evaluation
+evaluation:
+  compute_shap: false
+  plot_confusion_matrix: true
+  plot_pr_curve: true
+  plot_feature_importance: true
+  save_predictions: false
+
+# Output
+output:
+  base_dir: experiments/runs
+  save_models: true
+  save_metrics: true
+  save_plots: true

@@ -21,11 +21,23 @@ class DataLoader:
             'label_col': 'label',
             'expected_features': 41
         },
+        'nsl_kdd': {
+            'label_col': 'label',
+            'expected_features': 41
+        },
         'unsw-nb15': {
             'label_col': 'label',
             'expected_features': 49
         },
+        'unsw_nb15': {
+            'label_col': 'label',
+            'expected_features': 49
+        },
         'cic-ids2017': {
+            'label_col': 'Label',
+            'expected_features': 80
+        },
+        'cic_ids2017': {
             'label_col': 'Label',
             'expected_features': 80
         }
@@ -116,6 +128,13 @@ class DataLoader:
         
         if self.label_col not in df.columns:
             raise ValueError(f"Label column '{self.label_col}' not found in dataset")
+        
+        # Normalize binary numeric labels (0/1) to string labels for UNSW-NB15
+        if df[self.label_col].dtype in [np.int64, np.float64, int, float]:
+            df[self.label_col] = df[self.label_col].astype(int).map(
+                {0: 'Normal', 1: 'Attack'}
+            ).fillna('Normal')
+            print(f"[DataLoader] Mapped numeric labels to Normal/Attack")
         
         # Remove duplicate rows
         initial_shape = df.shape[0]

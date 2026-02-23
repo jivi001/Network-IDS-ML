@@ -1,7 +1,3 @@
-"""
-Inference pipeline for production predictions.
-"""
-
 from pathlib import Path
 import numpy as np
 import joblib
@@ -10,19 +6,22 @@ from nids.models import HybridNIDS
 
 
 class InferencePipeline:
-    """Production inference pipeline."""
-    
-    def __init__(self, model_version: str = 'v1.0.0'):
-        self.model_version = model_version
-        self.model_dir = Path(f'models/production/{model_version}')
+
+    def __init__(self, model_dir: str):
+        """
+        Args:
+            model_dir: Path to a models/ directory produced by TrainingPipeline,
+                       e.g. 'experiments/runs/<experiment_id>/models'
+                        or 'models/production/v1.0.0'
+        """
+        self.model_dir = Path(model_dir)
         self.model = None
         self.preprocessor = None
         self.selector = None
         self._load_artifacts()
+
         
     def _load_artifacts(self):
-        """Load model, preprocessor, and selector."""
-        # Load model
         tier1_path = self.model_dir / 'tier1_rf.pkl'
         tier2_path = self.model_dir / 'tier2_iforest.pkl'
         
@@ -40,18 +39,7 @@ class InferencePipeline:
             self.selector = joblib.load(selector_path)
     
     def predict_single(self, features: np.ndarray) -> dict:
-        """
-        Predict for a single sample.
-        
-        Args:
-            features: Feature vector (1D array)
-            
-        Returns:
-            Dictionary with prediction and metadata
-        """
         import pandas as pd
-        
-        # Convert to DataFrame for preprocessing
         if isinstance(features, list):
             features = pd.DataFrame([features], columns=self.preprocessor.get_feature_names())
         elif isinstance(features, np.ndarray):
@@ -76,15 +64,6 @@ class InferencePipeline:
         }
     
     def predict_batch(self, features: np.ndarray) -> dict:
-        """
-        Predict for multiple samples.
-        
-        Args:
-            features: Feature matrix (2D array)
-            
-        Returns:
-            Dictionary with predictions and metadata
-        """
         import pandas as pd
         
         # Convert to DataFrame

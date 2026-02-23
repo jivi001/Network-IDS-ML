@@ -1,220 +1,217 @@
 # 🛡️ Network Intrusion Detection System (NIDS)
 
-## What is This Project?
-
-This is a **production-grade, hybrid Machine Learning system** for detecting network intrusions and cyber attacks. It combines two complementary detection approaches:
-
-1. **Supervised Learning (Random Forest)** - Detects known attack patterns
-2. **Unsupervised Learning (Isolation Forest)** - Identifies zero-day anomalies
-
-### Key Features
-
-✅ **Hybrid Architecture**: Two-tier cascade system for comprehensive threat detection  
-✅ **Production-Ready**: Docker deployment with REST API  
-✅ **Research-Grade**: Cross-dataset evaluation, statistical testing, SHAP explainability  
-✅ **Security-Focused**: Optimized for high recall (minimizes missed attacks)  
-✅ **Configurable**: YAML-based configuration management  
-✅ **Reproducible**: Experiment tracking with versioned models  
-
-### Supported Datasets
-
-- **NSL-KDD**: Classic intrusion detection benchmark
-- **UNSW-NB15**: Modern network traffic dataset
-- **CIC-IDS2017**: Contemporary attack scenarios
+A **production-grade Hybrid Machine Learning system** for detecting network intrusions. Combines a supervised Random Forest for known attacks with an Isolation Forest for zero-day anomaly detection.
 
 ---
 
-## 📊 How This System Works
+## ✨ Key Features
 
-### Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Network Traffic                       │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-         ┌───────────────────────┐
-         │   Preprocessing       │
-         │   • Clean data        │
-         │   • Encode features   │
-         │   • Scale values      │
-         └───────────┬───────────┘
-                     │
-                     ▼
-         ┌───────────────────────┐
-         │   Feature Selection   │
-         │   • RFE (20 features) │
-         └───────────┬───────────┘
-                     │
-                     ▼
-         ┌───────────────────────┐
-         │   TIER 1: Random      │
-         │   Forest Classifier   │
-         └───────────┬───────────┘
-                     │
-            ┌────────┴────────┐
-            │                 │
-         Attack?           Normal?
-            │                 │
-            ▼                 ▼
-    ┌──────────────┐  ┌──────────────────┐
-    │ ALERT: Known │  │ TIER 2: Isolation│
-    │ Attack Type  │  │ Forest (Anomaly) │
-    └──────────────┘  └────────┬─────────┘
-                               │
-                      ┌────────┴────────┐
-                      │                 │
-                  Anomaly?          Normal?
-                      │                 │
-                      ▼                 ▼
-              ┌──────────────┐  ┌──────────┐
-              │ ALERT: Zero- │  │  PASS    │
-              │ Day Attack   │  │          │
-              └──────────────┘  └──────────┘
-```
-
-### Processing Pipeline
-
-1. **Data Loading**: Load network traffic from CSV files
-2. **Preprocessing**: 
-   - Clean numerical data (remove inf/NaN)
-   - Encode categorical features
-   - Scale features using StandardScaler
-   - Apply SMOTE for class balancing (training only)
-3. **Feature Selection**: Use RFE to select top 20 most important features
-4. **Training**:
-   - **Tier 1**: Train Random Forest on all labeled data
-   - **Tier 2**: Train Isolation Forest on normal traffic only
-5. **Prediction**:
-   - All traffic goes through Tier 1 first
-   - If classified as attack → immediate alert
-   - If classified as normal → pass to Tier 2
-   - Tier 2 checks for anomalies (zero-day attacks)
-6. **Evaluation**: Compute security-focused metrics (Recall, FNR, FAR)
-
-### Why This Architecture?
-
-- **Tier 1 (Random Forest)**: Excellent at recognizing known attack patterns with high accuracy
-- **Tier 2 (Isolation Forest)**: Catches novel attacks that weren't in training data
-- **Cascade Design**: Reduces false positives by filtering known attacks before anomaly detection
+- **Hybrid Two-Tier Architecture** — Supervised + unsupervised detection cascade
+- **Multi-Dataset Support** — NSL-KDD and UNSW-NB15 (plug-in architecture for more)
+- **SMOTE Balancing** — Handles class imbalance in real-world traffic data
+- **SHAP Explainability** — Understand why each prediction was made
+- **REST API** — Deploy as a microservice with Docker
+- **YAML Config-Driven** — Fully configurable without touching code
 
 ---
 
-## 🚀 Quick Start Guide
+## 🧠 How It Works
 
-### Prerequisites
+```
+Network Traffic
+     │
+     ▼
+┌─────────────────────┐
+│   Preprocessing     │  Clean, encode, scale
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  Feature Selection  │  Top-N features via importance/RFE
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  TIER 1: Random     │  Known attack classification
+│  Forest             │
+└──────────┬──────────┘
+           │
+     ┌─────┴──────┐
+  Attack?       Normal?
+     │              │
+     ▼              ▼
+  ALERT        ┌──────────────────┐
+  Known        │  TIER 2:         │  Zero-day detection
+  Attack       │  Isolation Forest│
+               └──────┬───────────┘
+                       │
+                ┌──────┴──────┐
+            Anomaly?        Normal?
+                │               │
+                ▼               ▼
+           ALERT: Zero      PASS (benign)
+           Day Attack
+```
 
-- Python 3.8 or higher
-- pip package manager
-- (Optional) Docker for containerized deployment
+---
 
-### Installation
+## 📊 Performance
 
-```bash
-# Clone the repository
+| Dataset       | Recall    | Precision | F1-Score  | Attack Detection Rate |
+| ------------- | --------- | --------- | --------- | --------------------- |
+| NSL-KDD       | 72.4%     | 82.5%     | 70.8%     | 68.3%                 |
+| **UNSW-NB15** | **95.2%** | **100%**  | **97.5%** | **100%**              |
+
+> Results from default configuration. UNSW-NB15 is the **recommended dataset** for production use.
+
+---
+
+## 🚀 Quick Start
+
+### 1. Install
+
+```powershell
 git clone https://github.com/jivi001/Network-IDS-ML.git
 cd Network-IDS-ML
 
-# Create virtual environment
+# Create and activate virtual environment
 python -m venv nids_env
+nids_env\Scripts\activate      # Windows
+# source nids_env/bin/activate  # Linux/Mac
 
-# Activate virtual environment
-# Windows:
-nids_env\Scripts\activate
-# Linux/Mac:
-source nids_env/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Install package in development mode
-pip install -e .
 ```
 
-### Verify Installation
+### 2. Prepare Your Dataset
 
-```bash
-python -c "from nids import HybridNIDS; print('✓ Installation successful!')"
+#### Option A — NSL-KDD
+
+Place `nsl_kdd_train.csv` and `nsl_kdd_test.csv` in `data/raw/`. (Already supported out of the box.)
+
+#### Option B — UNSW-NB15 _(Recommended)_
+
+1. Download the 4 CSV files from the [UNSW-NB15 dataset page](https://research.unsw.edu.au/projects/unsw-nb15-dataset)
+2. Place them in `data/raw/UNSW-NB15/`
+3. Run the prep script:
+
+```powershell
+python scripts/prepare_unsw_nb15.py
+```
+
+### 3. Train
+
+```powershell
+# UNSW-NB15 (recommended)
+python scripts/train.py --config configs/training/unsw_nb15.yaml
+
+# NSL-KDD (default)
+python scripts/train.py --config configs/training/default.yaml
+
+# NSL-KDD (optimized hyperparameters)
+python scripts/train.py --config configs/training/optimized.yaml
+```
+
+Results are saved to `experiments/runs/<experiment_id>/`.
+
+### 4. Evaluate
+
+```powershell
+python scripts/evaluate.py \
+  --model "experiments/runs/<experiment_id>/models" \
+  --dataset "data/raw/unsw_nb15_test.csv" \
+  --dataset-type unsw_nb15
 ```
 
 ---
 
-## 📚 Project Structure
+## 📁 Project Structure
 
 ```
 Network-IDS-ML/
-├── nids/                      # Core Python package
-│   ├── data/                  # Data loading & validation
-│   ├── preprocessing/         # Data preprocessing
-│   ├── features/              # Feature selection
-│   ├── models/                # ML models (RF, iForest, Hybrid)
-│   ├── evaluation/            # Metrics & testing
-│   ├── explainability/        # SHAP interpretability
-│   ├── pipelines/             # Training/evaluation/inference
-│   └── utils/                 # Config & logging
-├── configs/                   # YAML configuration files
-│   ├── datasets/              # Dataset configurations
-│   ├── models/                # Model hyperparameters
-│   └── training/              # Training pipeline configs
-├── scripts/                   # CLI entry points
-│   ├── train.py               # Training script
-│   ├── evaluate.py            # Evaluation script
-│   └── cross_dataset_eval.py  # Cross-dataset testing
-├── deployment/                # Docker deployment
-│   ├── Dockerfile             # Production image
-│   ├── docker-compose.yml     # Orchestration
-│   └── inference_api.py       # REST API
-├── data/                      # Dataset storage
-│   ├── raw/                   # Original datasets
-│   ├── processed/             # Preprocessed data
-│   └── interim/               # Intermediate files
-├── models/                    # Trained models
-│   ├── production/            # Production models
-│   └── baselines/             # Baseline models
-├── experiments/               # Experiment tracking
-│   ├── runs/                  # Individual experiments
-│   └── cross_dataset/         # Cross-dataset results
-├── tests/                     # Unit & integration tests
-├── docs/                      # Documentation
-├── requirements.txt           # Python dependencies
-├── setup.py                   # Package installation
-└── README.md                  # This file
+├── nids/                        # Core Python package
+│   ├── data/                    # Data loading & validation
+│   ├── preprocessing/           # Cleaning, scaling, SMOTE
+│   ├── features/                # Feature selection (RFE / importance)
+│   ├── models/                  # Random Forest, Isolation Forest, Hybrid
+│   ├── evaluation/              # Metrics & plots
+│   ├── explainability/          # SHAP interpretability
+│   ├── pipelines/               # Training / evaluation / inference
+│   └── utils/                   # Config & logging helpers
+├── configs/
+│   ├── datasets/                # nsl_kdd.yaml, unsw_nb15.yaml
+│   ├── models/                  # RF & iForest hyperparameters
+│   └── training/                # default.yaml, optimized.yaml, unsw_nb15.yaml
+├── scripts/
+│   ├── data/                    # Dataset preparation scripts
+│   │   └── prepare_unsw_nb15.py
+│   ├── train.py                 # Training CLI
+│   ├── evaluate.py              # Evaluation CLI
+│   └── cross_dataset_eval.py   # Cross-dataset benchmarking
+├── deployment/
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   └── inference_api.py         # Flask REST API
+├── data/
+│   ├── raw/                     # Original dataset files (git-ignored)
+│   │   ├── UNSW-NB15/           # Raw UNSW-NB15 CSVs
+│   │   ├── nsl_kdd_train.csv
+│   │   └── nsl_kdd_test.csv
+│   ├── processed/               # Preprocessed data (.gitkeep)
+│   └── interim/                 # Intermediate files (.gitkeep)
+├── experiments/
+│   └── runs/                    # Auto-generated per-run outputs (.gitkeep)
+├── models/                      # Promoted production models (.gitkeep)
+├── notebooks/
+│   └── exploration.ipynb
+├── tests/
+├── docs/
+├── requirements.txt
+├── setup.py
+├── pytest.ini
+└── README.md
 ```
+
+---
+
+## ⚙️ Configuration
+
+All configs live in `configs/`. Key training options in any `configs/training/*.yaml`:
+
+| Key                            | Description                                          |
+| ------------------------------ | ---------------------------------------------------- |
+| `feature_selection.method`     | `importance` (fast) or `rfe` (slower, more accurate) |
+| `feature_selection.n_features` | Number of top features to use                        |
+| `preprocessing.apply_smote`    | `true`/`false` — enable class balancing              |
+| `evaluation.compute_shap`      | `true`/`false` — SHAP feature importance plots       |
+
+---
+
+## 🐳 Docker Deployment
+
+```powershell
+cd deployment
+docker-compose up --build
+```
+
+API will be available at `http://localhost:5000`. See [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) for full API reference.
 
 ---
 
 ## 📖 Documentation
 
-- **[GETTING_STARTED.md](docs/GETTING_STARTED.md)** - Beginner's guide
-- **[TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md)** - How to train models
-- **[DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** - Production deployment
-- **[DOCKER_GUIDE.md](docs/DOCKER_GUIDE.md)** - Docker containerization
-- **[API_REFERENCE.md](docs/API_REFERENCE.md)** - Code documentation
-- **[MIGRATION_GUIDE.md](docs/MIGRATION_GUIDE.md)** - Upgrade from old version
-
----
-
-## 🎯 Performance
-
-| Dataset | Recall | Precision | F1-Score | Attack Detection |
-|---------|--------|-----------|----------|------------------|
-| NSL-KDD | 95.2% | 91.8% | 93.5% | 95.2% |
-| UNSW-NB15 | 93.1% | 90.5% | 91.8% | 93.1% |
-
-*Results from baseline configuration with default hyperparameters*
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+| Doc                                             | Description           |
+| ----------------------------------------------- | --------------------- |
+| [GETTING_STARTED.md](docs/GETTING_STARTED.md)   | Beginner's guide      |
+| [TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md)     | Training walkthrough  |
+| [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) | Production deployment |
+| [DOCKER_GUIDE.md](docs/DOCKER_GUIDE.md)         | Docker setup          |
+| [API_REFERENCE.md](docs/API_REFERENCE.md)       | Full API docs         |
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
+MIT License — see [LICENSE](LICENSE).
 
 ---
 
@@ -228,7 +225,6 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 
 ## 🙏 Acknowledgments
 
-- NSL-KDD dataset creators
-- UNSW-NB15 dataset creators
-- CIC-IDS2017 dataset creators
-- scikit-learn community
+- [NSL-KDD Dataset](https://www.unb.ca/cic/datasets/nsl.html) — University of New Brunswick
+- [UNSW-NB15 Dataset](https://research.unsw.edu.au/projects/unsw-nb15-dataset) — UNSW Canberra
+- [scikit-learn](https://scikit-learn.org/) community
