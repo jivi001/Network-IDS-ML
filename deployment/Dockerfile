@@ -1,36 +1,18 @@
-# Production Dockerfile for NIDS Inference
-
-FROM python:3.10-slim
-
+FROM python:3.11-slim AS builder
 WORKDIR /app
+ENV PIP_NO_CACHE_DIR=1
+COPY requirements/base.txt /tmp/requirements.txt
+RUN pip install --upgrade pip && pip install --prefix=/install -r /tmp/requirements.txt
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy package and configuration
-COPY nids/ ./nids/
-COPY configs/ ./configs/
-COPY models/production/ ./models/production/
-
-# Create logs directory
-RUN mkdir -p /app/logs
-
-# Expose port for inference API
+FROM python:3.11-slim
+WORKDIR /app
+RUN useradd --create-home --shell /bin/bash appuser
+COPY --from=builder /install /usr/local
+COPY src ./src
+COPY configs ./configs
+ENV PYTHONPATH=/app
+ENV MODEL_ARTIFACT_DIR=/app/experiments/latest
 EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV MODEL_VERSION=v1.0.0
-
-# Entrypoint
-CMD ["python", "deployment/inference_api.py"]
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD python -c "import requests; requests.get('http://localhost:8000/health', timeout=2).raise_for_status()"
+USER appuser
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

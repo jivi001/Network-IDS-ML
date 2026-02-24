@@ -12,48 +12,40 @@ from nids.evaluation import CrossDatasetEvaluator
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Cross-dataset evaluation')
+    parser = argparse.ArgumentParser(description="Cross-dataset evaluation")
     parser.add_argument(
-        '--source-model',
+        "--source-model", type=str, required=True, help="Path to source model directory"
+    )
+    parser.add_argument(
+        "--source-dataset",
         type=str,
         required=True,
-        help='Path to source model directory'
+        help="Name of source dataset (e.g., nsl_kdd)",
     )
     parser.add_argument(
-        '--source-dataset',
+        "--target-dataset",
         type=str,
         required=True,
-        help='Name of source dataset (e.g., nsl_kdd)'
+        help="Name of target dataset (e.g., unsw_nb15)",
     )
     parser.add_argument(
-        '--target-dataset',
-        type=str,
-        required=True,
-        help='Name of target dataset (e.g., unsw_nb15)'
+        "--target-data", type=str, required=True, help="Path to target dataset CSV"
     )
     parser.add_argument(
-        '--target-data',
+        "--output",
         type=str,
-        required=True,
-        help='Path to target dataset CSV'
+        default="experiments/cross_dataset",
+        help="Output directory",
     )
-    parser.add_argument(
-        '--output',
-        type=str,
-        default='experiments/cross_dataset',
-        help='Output directory'
-    )
-    
+
     args = parser.parse_args()
-    
+
     # Run cross-dataset evaluation
     evaluator = CrossDatasetEvaluator(args.source_model, args.source_dataset)
     report = evaluator.evaluate_on_target(
-        args.target_dataset,
-        args.target_data,
-        args.output
+        args.target_dataset, args.target_data, args.output
     )
-    
+
     print(f"\n{'='*70}")
     print(f"Cross-Dataset Evaluation Complete!")
     print(f"{'='*70}")
@@ -66,5 +58,5 @@ def main():
     print(f"{'='*70}\n")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

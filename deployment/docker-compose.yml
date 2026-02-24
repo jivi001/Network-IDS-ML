@@ -1,26 +1,15 @@
-# Docker Compose for NIDS Deployment
-
-version: '3.8'
-
+version: '3.9'
 services:
-  nids-inference:
+  nids-api:
     build:
       context: ..
       dockerfile: deployment/Dockerfile
-    container_name: nids-inference
+    container_name: nids-api
+    env_file:
+      - ../.env
+    environment:
+      - LOG_LEVEL=INFO
+      - MODEL_ARTIFACT_DIR=/app/experiments/latest
     ports:
       - "8000:8000"
-    volumes:
-      - ../models/production:/app/models/production:ro
-      - ../logs:/app/logs
-    environment:
-      - MODEL_VERSION=v1.0.0
-      - LOG_LEVEL=INFO
-      - PYTHONUNBUFFERED=1
     restart: unless-stopped
-    healthcheck:
-      test: [ "CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')" ]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 10s

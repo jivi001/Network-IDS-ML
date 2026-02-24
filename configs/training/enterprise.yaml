@@ -1,0 +1,42 @@
+runtime:
+  random_state: 42
+  test_size: 0.2
+
+data:
+  path: data/processed/nsl_kdd_binary.csv
+  target_column: label
+
+features:
+  numeric: [duration, src_bytes, dst_bytes, wrong_fragment, urgent]
+  categorical: [protocol_type, service, flag]
+
+model:
+  name: random_forest
+  hyperparameters:
+    n_estimators: 300
+    max_depth: 20
+    min_samples_split: 4
+    n_jobs: -1
+
+training:
+  use_smote: true
+  smote:
+    sampling_strategy: auto
+    k_neighbors: 5
+  k_best_features: 20
+  cv_folds: 5
+  search:
+    enabled: true
+    n_iter: 5
+    scoring: f1
+    n_jobs: -1
+    param_distributions:
+      model__n_estimators: [200, 300, 400]
+      model__max_depth: [12, 20, 28]
+
+artifacts:
+  base_dir: experiments/runs
+
+mlflow:
+  tracking_uri: file:./experiments/mlruns
+  experiment_name: nids-enterprise

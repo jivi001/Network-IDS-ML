@@ -71,3 +71,7 @@ docs/_build/
 # Temporary files
 *.tmp
 *.bak
+
+# Environment variables
+.env
+.env.*
