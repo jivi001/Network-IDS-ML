@@ -186,6 +186,70 @@ async def predict_batch(body: BatchPredictRequest):
     )
 
 
+# ─── SHAP Explainability ──────────────────────────────────────────────────────
+
+class ExplainResponse(BaseModel):
+    prediction: str
+    confidence: float
+    feature_contributions: dict = Field(
+        ..., description="Per-feature SHAP values explaining this prediction"
+    )
+
+
+@app.post("/explain", response_model=ExplainResponse, tags=["Explainability"])
+async def explain(body: PredictRequest):
+    """
+    Explain a single prediction using SHAP values.
+
+    Returns the prediction alongside per-feature importance values
+    showing how much each feature pushed the prediction toward or away
+    from the predicted class.
+    """
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="Model not loaded.")
+
+    try:
+        from nids.explainability import SHAPExplainer
+
+        # Get prediction first
+        result = pipeline.predict_single(body.features)
+
+        # Preprocess the features the same way as predict_single
+        import pandas as pd
+        features = pd.DataFrame(
+            [body.features],
+            columns=pipeline.preprocessor.get_feature_names()
+        )
+        X_proc = pipeline.preprocessor.transform(features)
+        X_sel = pipeline.selector.transform(X_proc)
+
+        # Compute SHAP values
+        explainer = SHAPExplainer()
+        feature_names = pipeline.selector.get_selected_names()
+        shap_values = explainer.explain_prediction(
+            pipeline.model.tier1_model.model, X_sel, feature_names
+        )
+
+        # Sort by absolute SHAP value
+        sorted_shap = dict(
+            sorted(shap_values.items(), key=lambda x: abs(x[1]), reverse=True)
+        )
+
+        return ExplainResponse(
+            prediction=result["prediction"],
+            confidence=result["confidence"],
+            feature_contributions=sorted_shap,
+        )
+
+    except ImportError:
+        raise HTTPException(
+            status_code=501, detail="SHAP not installed. pip install shap"
+        )
+    except Exception as exc:
+        logger.exception("Explain failed")
+        raise HTTPException(status_code=500, detail=f"Explanation error: {exc}")
+
+
 # ─── Dev entry-point ───────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn

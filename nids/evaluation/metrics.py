@@ -96,13 +96,22 @@ class NIDSEvaluator:
         sec_metrics = self._compute_security_metrics(y_true, y_pred, normal_label)
 
         # --- PR Curve ---
+        pr_auc_val = None
         if y_proba is not None:
-            self._plot_precision_recall_curve(y_true, y_proba, normal_label)
+            pr_auc_val = self._plot_precision_recall_curve(y_true, y_proba, normal_label)
 
         # --- ROC Curve ---
         roc_auc = None
         if y_proba is not None:
             roc_auc = self._plot_roc_curve(y_true, y_proba, normal_label)
+
+        # --- Threshold Optimization ---
+        optimal_threshold = None
+        best_f2 = None
+        if y_proba is not None:
+            optimal_threshold, best_f2 = self.optimize_threshold(
+                y_true, y_proba, normal_label
+            )
 
         return {
             'accuracy': accuracy,
@@ -111,6 +120,9 @@ class NIDSEvaluator:
             'f1_score': f1,
             'f2_score': f2,
             'roc_auc': roc_auc,
+            'pr_auc': pr_auc_val,
+            'optimal_threshold': optimal_threshold,
+            'optimal_f2_at_threshold': best_f2,
             'confusion_matrix': cm.tolist(),
             'classification_report': report,
             **sec_metrics
@@ -174,8 +186,8 @@ class NIDSEvaluator:
 
     def _plot_precision_recall_curve(
         self, y_true: np.ndarray, y_proba: np.ndarray, normal_label: str
-    ):
-        """Plot PR curve for attack detection (binary)."""
+    ) -> float:
+        """Plot PR curve for attack detection (binary). Returns PR-AUC."""
         try:
             y_true_binary = (np.array(y_true) != normal_label).astype(int)
 
@@ -186,10 +198,10 @@ class NIDSEvaluator:
                 y_score = y_proba
 
             prec, rec, _ = precision_recall_curve(y_true_binary, y_score)
-            pr_auc = auc(rec, prec)
+            pr_auc_val = auc(rec, prec)
 
             plt.figure(figsize=(10, 6))
-            plt.plot(rec, prec, linewidth=2, label=f'PR Curve (AUC = {pr_auc:.4f})')
+            plt.plot(rec, prec, linewidth=2, label=f'PR Curve (AUC = {pr_auc_val:.4f})')
             plt.xlabel('Recall (Attack Detection Rate)', fontsize=12)
             plt.ylabel('Precision', fontsize=12)
             plt.title('Precision-Recall Curve', fontsize=16, fontweight='bold')
@@ -202,8 +214,11 @@ class NIDSEvaluator:
                 plt.savefig(filepath, dpi=300)
                 print(f"[Saved] Precision-Recall Curve -> {filepath}")
             plt.close()
+            return pr_auc_val
         except Exception as e:
             print(f"[Warning] Could not plot PR curve: {e}")
+            return None
+
 
     def _plot_roc_curve(self, y_true: np.ndarray, y_proba: np.ndarray, normal_label: str) -> float:
         """Plot ROC curve and return ROC-AUC for attack detection (binary)."""
@@ -237,6 +252,58 @@ class NIDSEvaluator:
         except Exception as e:
             print(f"[Warning] Could not plot ROC curve: {e}")
             return None
+
+    def optimize_threshold(
+        self,
+        y_true: np.ndarray,
+        y_proba: np.ndarray,
+        normal_label: str = 'Normal',
+        beta: float = 2.0
+    ) -> tuple:
+        """
+        Find the decision threshold that maximizes F-beta score on the PR curve.
+
+        Args:
+            y_true: Ground truth labels
+            y_proba: Prediction probabilities
+            normal_label: Label for benign traffic
+            beta: F-beta parameter (default 2.0 = recall-biased)
+
+        Returns:
+            (optimal_threshold, best_f_beta_score)
+        """
+        try:
+            y_true_binary = (np.array(y_true) != normal_label).astype(int)
+
+            if y_proba.ndim > 1:
+                y_score = 1 - y_proba[:, 0]
+            else:
+                y_score = y_proba
+
+            prec, rec, thresholds = precision_recall_curve(y_true_binary, y_score)
+
+            # Compute F-beta at each threshold (skip last point which has rec=0)
+            f_beta = np.where(
+                (prec[:-1] + rec[:-1]) > 0,
+                (1 + beta**2) * (prec[:-1] * rec[:-1]) / ((beta**2 * prec[:-1]) + rec[:-1]),
+                0
+            )
+
+            best_idx = np.argmax(f_beta)
+            optimal_threshold = float(thresholds[best_idx])
+            best_score = float(f_beta[best_idx])
+
+            print(f"\n--- Threshold Optimization (F{beta:.0f}) ---")
+            print(f"  Optimal threshold:  {optimal_threshold:.4f}")
+            print(f"  Best F{beta:.0f}-score:     {best_score:.4f}")
+            print(f"  Precision at opt:   {prec[best_idx]:.4f}")
+            print(f"  Recall at opt:      {rec[best_idx]:.4f}")
+
+            return optimal_threshold, best_score
+
+        except Exception as e:
+            print(f"[Warning] Threshold optimization failed: {e}")
+            return None, None
 
     def plot_feature_importance(
         self,

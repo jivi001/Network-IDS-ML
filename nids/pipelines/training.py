@@ -1,6 +1,7 @@
 """
 Training pipeline for Hybrid NIDS.
 End-to-end workflow from data loading to model training and evaluation.
+Supports optional MLflow experiment tracking.
 """
 
 from pathlib import Path
@@ -18,6 +19,14 @@ from nids.models import HybridNIDS
 from nids.evaluation import NIDSEvaluator
 from nids.utils.config import load_config
 from nids.utils.logging import setup_logger
+
+# Optional MLflow integration
+try:
+    import mlflow
+    import mlflow.sklearn
+    MLFLOW_AVAILABLE = True
+except ImportError:
+    MLFLOW_AVAILABLE = False
 
 
 class TrainingPipeline:
@@ -39,7 +48,30 @@ class TrainingPipeline:
     def run(self):
         """Execute full training pipeline."""
         self.logger.info(f"Starting experiment: {self.experiment_id}")
-        
+
+        # Initialize MLflow tracking if configured
+        use_mlflow = self.config.get('tracking', {}).get('use_mlflow', False)
+        if use_mlflow and MLFLOW_AVAILABLE:
+            tracking_uri = self.config.get('tracking', {}).get('mlflow_uri', 'mlruns')
+            mlflow.set_tracking_uri(tracking_uri)
+            exp_name = self.config.get('tracking', {}).get(
+                'experiment_name', 'nids-hybrid'
+            )
+            mlflow.set_experiment(exp_name)
+            self.logger.info(f"MLflow tracking enabled: {exp_name}")
+        elif use_mlflow and not MLFLOW_AVAILABLE:
+            self.logger.warning("MLflow requested but not installed. pip install mlflow")
+            use_mlflow = False
+
+        # Wrap run() body in an optional MLflow run context
+        if use_mlflow:
+            with mlflow.start_run(run_name=self.experiment_id):
+                return self._run_pipeline(use_mlflow=True)
+        else:
+            return self._run_pipeline(use_mlflow=False)
+
+    def _run_pipeline(self, use_mlflow: bool = False):
+        """Core pipeline logic, optionally under an active MLflow run."""
         # 1. Load data
         X_train, y_train, X_test, y_test = self._load_data()
         
@@ -64,6 +96,10 @@ class TrainingPipeline:
         
         # 7. Save artifacts
         self._save_artifacts(model, metrics)
+
+        # 8. Log to MLflow
+        if use_mlflow:
+            self._log_to_mlflow(metrics)
         
         self.logger.info(f"Experiment complete: {self.experiment_id}")
         return self.experiment_id, metrics
@@ -268,3 +304,31 @@ class TrainingPipeline:
             metrics['cv_recall_scores'] = self.cv_scores
 
         self.logger.info(f"Artifacts saved to {self.output_dir}")
+
+    def _log_to_mlflow(self, metrics: dict):
+        """Log parameters, metrics, and artifacts to the active MLflow run."""
+        # Log hyperparameters
+        flat_params = {
+            'dataset': self.config['dataset']['name'],
+            'random_state': self.config['dataset'].get('random_state', 42),
+            'smote': self.config['preprocessing'].get('apply_smote', True),
+            'feature_selection_method': self.config['feature_selection'].get('method'),
+            'n_features': self.config['feature_selection'].get('n_features'),
+        }
+        mlflow.log_params(flat_params)
+
+        # Log scalar metrics
+        loggable = {
+            k: v for k, v in metrics.items()
+            if isinstance(v, (int, float)) and v is not None
+        }
+        mlflow.log_metrics(loggable)
+
+        # Log CV scores
+        if hasattr(self, 'cv_scores') and self.cv_scores is not None:
+            mlflow.log_metric('cv_recall_mean', float(np.mean(self.cv_scores)))
+            mlflow.log_metric('cv_recall_std', float(np.std(self.cv_scores)))
+
+        # Log artifacts directory
+        mlflow.log_artifacts(str(self.output_dir))
+        self.logger.info("MLflow logging complete")
