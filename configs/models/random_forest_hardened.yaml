@@ -1,0 +1,24 @@
+# Random Forest — Hardened Configuration for SOC Deployment
+# Designed to reduce overfitting and improve generalization
+# on adversarial test distributions (e.g., NSL-KDD)
+
+model_type: random_forest
+description: >
+  Hardened Tier 1 RF for production. Compared to default config:
+  reduced depth, higher leaf requirements, balanced_subsample
+  class weighting (computed per bootstrap sample = more stable).
+
+hyperparameters:
+  n_estimators: 200 # Benchmarked: 200 = best latency/accuracy tradeoff
+  max_depth: 12 # Reduced from 20 → less memorization
+  min_samples_split: 20 # Increased from 5 → require more evidence to split
+  min_samples_leaf: 10 # Increased from 2 → prune tiny leaves
+  max_features: sqrt # Already correct — limits per-split feature space
+  criterion: gini
+  class_weight: balanced_subsample # Per-bootstrap-sample balancing (better than 'balanced')
+  random_state: 42
+  n_jobs: -1
+  bootstrap: true
+  oob_score: true # Out-of-bag score as cheap generalization estimate
+  verbose: 0
+  max_samples: 0.8 # Subsample 80% per tree → reduces correlation

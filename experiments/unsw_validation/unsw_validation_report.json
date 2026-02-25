@@ -1,0 +1,43 @@
+{
+  "timestamp": "2026-02-24T22:37:57.194142",
+  "dataset": "UNSW-NB15",
+  "config": "hardened (200 trees)",
+  "cross_validation": {
+    "recall": {
+      "mean": 0.9914959338465344,
+      "std": 0.00020163688607114635
+    },
+    "f1": {
+      "mean": 0.9919350728103314,
+      "std": 0.00018180146926156858
+    },
+    "f2": {
+      "mean": 0.9915624517909404,
+      "std": 0.00019859711044756237
+    }
+  },
+  "test_metrics": {
+    "accuracy": 0.9463135927518896,
+    "recall": 0.9463135927518896,
+    "precision": 0.992238276986746,
+    "f1_score": 0.968142354575268,
+    "f2_score": 0.9547679437425698,
+    "roc_auc": 0.9994391979674742,
+    "pr_auc": 0.987934090090733,
+    "optimal_threshold": 0.7871271749359887,
+    "optimal_f2_at_threshold": 0.9664920323073564,
+    "tp": 3566,
+    "fp": 4215,
+    "fn": 0,
+    "tn": 70805,
+    "attack_detection_rate": 1.0,
+    "false_alarm_rate": 0.056185017328712346
+  },
+  "classification_report": "                  precision    recall  f1-score   support\n\n          Attack       0.83      1.00      0.91      3566\n          Normal       1.00      0.94      0.97     75020\nZero_Day_Anomaly       0.00      0.00      0.00         0\n\n        accuracy                           0.95     78586\n       macro avg       0.61      0.65      0.63     78586\n    weighted avg       0.99      0.95      0.97     78586\n",
+  "overfitting": {
+    "train_recall": 0.9742883580819355,
+    "test_recall": 0.9463135927518896,
+    "gap": 0.027974765330045837
+  },
+  "latency_avg_ms": 78.05970200017327
+}

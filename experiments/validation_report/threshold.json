@@ -1,0 +1,12 @@
+{
+  "optimal_threshold": 0.26679998506574276,
+  "optimal_f2_at_threshold": 0.8836056194774649,
+  "method": "PR-curve F2 sweep, FPR<=5%, threshold>0.01",
+  "class_order": [
+    "DoS",
+    "Normal",
+    "Probe",
+    "R2L",
+    "U2R"
+  ]
+}
