@@ -1,0 +1,29 @@
+[
+  {
+    "n_estimators": 300,
+    "roc_auc": 0.9709,
+    "pr_auc": 0.9739,
+    "recall": 0.7296,
+    "f2": 0.7176,
+    "latency_avg_ms": 72.2,
+    "latency_p99_ms": 91.7
+  },
+  {
+    "n_estimators": 200,
+    "roc_auc": 0.9714,
+    "pr_auc": 0.9742,
+    "recall": 0.7303,
+    "f2": 0.7182,
+    "latency_avg_ms": 58.6,
+    "latency_p99_ms": 141.0
+  },
+  {
+    "n_estimators": 150,
+    "roc_auc": 0.972,
+    "pr_auc": 0.9746,
+    "recall": 0.7312,
+    "f2": 0.7191,
+    "latency_avg_ms": 101.7,
+    "latency_p99_ms": 169.1
+  }
+]

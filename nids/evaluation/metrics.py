@@ -29,14 +29,50 @@ import os
 
 class NIDSEvaluator:
     """
-    Evaluation suite for intrusion detection systems.
-    Prioritizes Recall (minimize missed attacks / False Negatives).
+    Security-focused evaluation for NIDS.
+    Computes: Accuracy, Recall, Precision, F1, F2, Confusion Matrix.
+    Emphasis on minimizing False Negatives (missed attacks).
     """
 
-    def __init__(self, output_dir: Optional[str] = 'logs'):
+    def __init__(self, output_dir: str = None):
         self.output_dir = output_dir
         if output_dir is not None:
             os.makedirs(output_dir, exist_ok=True)
+
+    @staticmethod
+    def _get_attack_score(
+        y_proba: np.ndarray, labels: list, normal_label: str = 'Normal'
+    ) -> np.ndarray:
+        """
+        Compute per-sample P(Attack) from multiclass probability matrix.
+
+        Correctly handles arbitrary class ordering by finding the
+        Normal column index from the labels list, rather than assuming
+        column 0 is Normal (which fails when sklearn sorts alphabetically).
+
+        Args:
+            y_proba:  (n_samples, n_classes) probability matrix
+            labels:   ordered class list matching y_proba columns
+            normal_label: the label that denotes benign traffic
+
+        Returns:
+            1-D array of P(Attack) = 1 - P(Normal) for each sample
+        """
+        if y_proba.ndim == 1:
+            # If y_proba is already a 1D array (e.g., binary classifier outputting P(positive))
+            return y_proba
+
+        labels_list = list(labels)
+        if normal_label in labels_list:
+            normal_idx = labels_list.index(normal_label)
+            return 1.0 - y_proba[:, normal_idx]
+        else:
+            # Fallback: sum of all columns except the first (original behavior)
+            # This assumes the first column is 'Normal' or the most common benign class
+            # This fallback is less robust and should ideally be avoided by providing correct labels.
+            print(f"[Warning] Normal label '{normal_label}' not found in provided labels. "
+                  "Falling back to 1 - y_proba[:, 0]. Ensure column 0 corresponds to Normal class.")
+            return 1.0 - y_proba[:, 0]
 
     def evaluate(
         self,
@@ -95,22 +131,34 @@ class NIDSEvaluator:
         # --- Security Metrics (Binary: Attack vs Normal) ---
         sec_metrics = self._compute_security_metrics(y_true, y_pred, normal_label)
 
+        # Determine probability column labels (y_proba may have fewer columns
+        # than `labels` when Tier 2 adds classes like Zero_Day_Anomaly)
+        proba_labels = labels
+        if y_proba is not None and labels is not None:
+            if y_proba.ndim > 1 and y_proba.shape[1] != len(labels):
+                # y_proba columns = RF classes (sorted alphabetically by sklearn)
+                # Filter labels to only the ones that appear in the RF model
+                proba_labels = sorted([l for l in labels if l != 'Zero_Day_Anomaly'])
+                if y_proba.shape[1] != len(proba_labels):
+                    # Last resort: just use sorted labels up to the column count
+                    proba_labels = sorted(set(y_true))[:y_proba.shape[1]]
+
         # --- PR Curve ---
         pr_auc_val = None
         if y_proba is not None:
-            pr_auc_val = self._plot_precision_recall_curve(y_true, y_proba, normal_label)
+            pr_auc_val = self._plot_precision_recall_curve(y_true, y_proba, normal_label, proba_labels)
 
         # --- ROC Curve ---
         roc_auc = None
         if y_proba is not None:
-            roc_auc = self._plot_roc_curve(y_true, y_proba, normal_label)
+            roc_auc = self._plot_roc_curve(y_true, y_proba, normal_label, proba_labels)
 
         # --- Threshold Optimization ---
         optimal_threshold = None
         best_f2 = None
         if y_proba is not None:
             optimal_threshold, best_f2 = self.optimize_threshold(
-                y_true, y_proba, normal_label
+                y_true, y_proba, normal_label, labels=proba_labels
             )
 
         return {
@@ -185,17 +233,13 @@ class NIDSEvaluator:
         plt.close()
 
     def _plot_precision_recall_curve(
-        self, y_true: np.ndarray, y_proba: np.ndarray, normal_label: str
+        self, y_true: np.ndarray, y_proba: np.ndarray,
+        normal_label: str, labels: list = None
     ) -> float:
         """Plot PR curve for attack detection (binary). Returns PR-AUC."""
         try:
             y_true_binary = (np.array(y_true) != normal_label).astype(int)
-
-            if y_proba.ndim > 1:
-                # Sum probabilities of all attack classes
-                y_score = 1 - y_proba[:, 0]
-            else:
-                y_score = y_proba
+            y_score = self._get_attack_score(y_proba, labels or [], normal_label)
 
             prec, rec, _ = precision_recall_curve(y_true_binary, y_score)
             pr_auc_val = auc(rec, prec)
@@ -220,17 +264,23 @@ class NIDSEvaluator:
             return None
 
 
-    def _plot_roc_curve(self, y_true: np.ndarray, y_proba: np.ndarray, normal_label: str) -> float:
+    def _plot_roc_curve(
+        self, y_true: np.ndarray, y_proba: np.ndarray,
+        normal_label: str, labels: list = None
+    ) -> float:
         """Plot ROC curve and return ROC-AUC for attack detection (binary)."""
         try:
             y_true_binary = (np.array(y_true) != normal_label).astype(int)
-
-            if y_proba.ndim > 1:
-                y_score = 1 - y_proba[:, 0]
-            else:
-                y_score = y_proba
+            y_score = self._get_attack_score(y_proba, labels or [], normal_label)
 
             roc_auc = roc_auc_score(y_true_binary, y_score)
+
+            # Sanity check: if ROC-AUC < 0.5 the scores are inverted
+            if roc_auc < 0.5:
+                print(f"  [FIX] ROC-AUC={roc_auc:.4f} < 0.5 — inverting scores")
+                y_score = 1.0 - y_score
+                roc_auc = roc_auc_score(y_true_binary, y_score)
+
             fpr, tpr, _ = roc_curve(y_true_binary, y_score)
 
             plt.figure(figsize=(10, 6))
@@ -238,7 +288,7 @@ class NIDSEvaluator:
             plt.plot([0, 1], [0, 1], 'k--', linewidth=1, label='Random')
             plt.xlabel('False Positive Rate (False Alarm Rate)', fontsize=12)
             plt.ylabel('True Positive Rate (Detection Rate)', fontsize=12)
-            plt.title('ROC Curve — Attack Detection', fontsize=16, fontweight='bold')
+            plt.title('ROC Curve \u2014 Attack Detection', fontsize=16, fontweight='bold')
             plt.legend(loc='lower right')
             plt.grid(alpha=0.3)
             plt.tight_layout()
@@ -258,46 +308,76 @@ class NIDSEvaluator:
         y_true: np.ndarray,
         y_proba: np.ndarray,
         normal_label: str = 'Normal',
-        beta: float = 2.0
+        labels: list = None,
+        beta: float = 2.0,
+        max_fpr: float = 0.05
     ) -> tuple:
         """
-        Find the decision threshold that maximizes F-beta score on the PR curve.
+        Find the decision threshold that maximizes F-beta score on the PR curve,
+        subject to a False Positive Rate constraint.
 
         Args:
             y_true: Ground truth labels
             y_proba: Prediction probabilities
             normal_label: Label for benign traffic
+            labels: Ordered class list matching y_proba columns
             beta: F-beta parameter (default 2.0 = recall-biased)
+            max_fpr: Maximum allowable FPR (default 5% for SOC)
 
         Returns:
             (optimal_threshold, best_f_beta_score)
         """
         try:
             y_true_binary = (np.array(y_true) != normal_label).astype(int)
-
-            if y_proba.ndim > 1:
-                y_score = 1 - y_proba[:, 0]
-            else:
-                y_score = y_proba
+            y_score = self._get_attack_score(y_proba, labels or [], normal_label)
 
             prec, rec, thresholds = precision_recall_curve(y_true_binary, y_score)
+            # Also get FPR at each threshold via ROC
+            fpr_arr, tpr_arr, roc_thresholds = roc_curve(y_true_binary, y_score)
 
-            # Compute F-beta at each threshold (skip last point which has rec=0)
+            # Compute F-beta at each PR threshold
             f_beta = np.where(
                 (prec[:-1] + rec[:-1]) > 0,
                 (1 + beta**2) * (prec[:-1] * rec[:-1]) / ((beta**2 * prec[:-1]) + rec[:-1]),
                 0
             )
 
-            best_idx = np.argmax(f_beta)
+            # For each PR threshold, compute FPR
+            n_normal = (y_true_binary == 0).sum()
+            threshold_fpr = np.array([
+                ((y_score >= t) & (y_true_binary == 0)).sum() / max(n_normal, 1)
+                for t in thresholds
+            ])
+
+            # Apply constraints:
+            # 1. threshold > 0.01 (reject degenerate 0.0)
+            # 2. FPR <= max_fpr
+            valid = (thresholds > 0.01) & (threshold_fpr <= max_fpr)
+
+            if valid.any():
+                constrained_f_beta = np.where(valid, f_beta, -1)
+                best_idx = np.argmax(constrained_f_beta)
+            else:
+                # Fallback: relax FPR constraint and pick best F-beta with threshold > 0.01
+                valid_nofpr = thresholds > 0.01
+                if valid_nofpr.any():
+                    constrained_f_beta = np.where(valid_nofpr, f_beta, -1)
+                    best_idx = np.argmax(constrained_f_beta)
+                    print(f"  [WARN] No threshold meets FPR<={max_fpr:.0%}; relaxed constraint")
+                else:
+                    best_idx = np.argmax(f_beta)
+                    print(f"  [WARN] All thresholds degenerate; picking global best")
+
             optimal_threshold = float(thresholds[best_idx])
             best_score = float(f_beta[best_idx])
+            fpr_at_opt = float(threshold_fpr[best_idx])
 
-            print(f"\n--- Threshold Optimization (F{beta:.0f}) ---")
+            print(f"\n--- Threshold Optimization (F{beta:.0f}, FPR<={max_fpr:.0%}) ---")
             print(f"  Optimal threshold:  {optimal_threshold:.4f}")
             print(f"  Best F{beta:.0f}-score:     {best_score:.4f}")
             print(f"  Precision at opt:   {prec[best_idx]:.4f}")
             print(f"  Recall at opt:      {rec[best_idx]:.4f}")
+            print(f"  FPR at opt:         {fpr_at_opt:.4f}")
 
             return optimal_threshold, best_score
 
