@@ -204,7 +204,7 @@ class TrainingPipeline:
             iforest_params=tier2_config['hyperparameters'],
             random_state=self.config['dataset'].get('random_state', 42)
         )
-
+        
         model.train(
             X_train, y_train,
             normal_label=self.config['training'].get('normal_label', 'Normal')
