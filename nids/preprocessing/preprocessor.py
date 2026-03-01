@@ -1,32 +1,21 @@
 """
 Preprocessing module for NIDS data.
-Handles: Cleaning (inf/NaN), Label Encoding, StandardScaler, SMOTE.
+Handles: Cleaning (inf/NaN), Frequency Encoding, StandardScaler, SMOTE.
 CRITICAL: SMOTE is applied ONLY to training data to prevent data leakage.
 """
 
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 from imblearn.over_sampling import SMOTE
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict
 import warnings
 
 
 class NIDSPreprocessor:
     """
     Unified preprocessing pipeline for network intrusion detection data.
-
-    Pipeline Order:
-    1. Clean inf/NaN values (Median imputation)
-    2. Label-encode categorical features
-    3. StandardScaler (Z-score normalization)
-    4. (Optional) SMOTE for class balancing
-
-    Per the research report:
-    - Label Encoding is used (not One-Hot) to avoid dimensionality explosion
-    - StandardScaler is critical for Isolation Forest distance calculations
-    - SMOTE generates synthetic minority samples; applied to Train set ONLY
     """
 
     def __init__(self, random_state: int = 42):
@@ -34,21 +23,24 @@ class NIDSPreprocessor:
         self.missing_token = 'MISSING'
 
         # Components
-        self.label_encoders = {}
         self.scaler = StandardScaler()
         self.imputer = SimpleImputer(strategy='median')
 
-        # State
-        self.categorical_cols = []
-        self.numerical_cols = []
-        self.feature_names = []
+        # Stateful Caches
+        self.max_values_: Dict[str, float] = {}
+        self.freq_encoders_: Dict[str, Dict[str, float]] = {}
         self.is_fitted = False
+
+        self.categorical_cols: List[str] = []
+        self.numerical_cols: List[str] = []
+        self.feature_names: List[str] = []
 
     def fit(self, X: pd.DataFrame, y: Optional[pd.Series] = None):
         """
         Fit all transformations on training data.
         """
         X = X.copy()
+        self.feature_names = X.columns.tolist()
 
         # Identify column types
         self.categorical_cols = X.select_dtypes(
@@ -57,27 +49,20 @@ class NIDSPreprocessor:
         self.numerical_cols = X.select_dtypes(
             include=[np.number]
         ).columns.tolist()
-        self.feature_names = X.columns.tolist()
 
-        # 1. Clean numerical data
+        # 1. Clean numerical data (Learn Max Values)
         if self.numerical_cols:
+            for col in self.numerical_cols:
+                # Replace inf with nan temporarily to find the real max
+                finite_max = X[col].replace([np.inf, -np.inf], np.nan).max()
+                self.max_values_[col] = finite_max if pd.notna(finite_max) else 0.0
             X[self.numerical_cols] = self._clean_numerical(X[self.numerical_cols])
 
-        # 2. Fit label encoders
+        # 2. Learn Frequency Encoders for categoricals
         for col in self.categorical_cols:
-            le = LabelEncoder()
-            values = X[col].fillna(self.missing_token).astype(str)
-
-            # Ensure fallback token is always available for unseen categories
-            # during inference.
-            if self.missing_token not in values.values:
-                values = pd.concat(
-                    [values, pd.Series([self.missing_token])],
-                    ignore_index=True
-                )
-
-            le.fit(values)
-            self.label_encoders[col] = le
+            X[col] = X[col].fillna(self.missing_token).astype(str)
+            freq = X[col].value_counts(normalize=True).to_dict()
+            self.freq_encoders_[col] = freq
 
         # Encode categoricals for fitting imputer/scaler
         X_encoded = self._encode_categorical(X)
@@ -102,20 +87,23 @@ class NIDSPreprocessor:
             raise RuntimeError("Preprocessor must be fitted before transform")
 
         X = X.copy()
+        self.validate_shape(X)
 
-        # Clean
+        # Clean using stored max values
         if self.numerical_cols:
             existing_num = [c for c in self.numerical_cols if c in X.columns]
             if existing_num:
                 X[existing_num] = self._clean_numerical(X[existing_num])
 
-        # Encode
+        # Encode using stored frequency encoders
         X_encoded = self._encode_categorical(X)
 
         # Impute + Scale
         X_imputed = self.imputer.transform(X_encoded)
-        X_scaled = self.scaler.transform(X_imputed)
+        # Cast to float32 for optimization
+        X_scaled = self.scaler.transform(X_imputed).astype(np.float32)
 
+        self.validate_no_nan(X_scaled)
         return X_scaled
 
     def fit_transform(self, X: pd.DataFrame, y: Optional[pd.Series] = None) -> np.ndarray:
@@ -124,28 +112,21 @@ class NIDSPreprocessor:
         return self.transform(X)
 
     def _clean_numerical(self, X_num: pd.DataFrame) -> pd.DataFrame:
-        """Replace inf with column max finite value, NaN handled by imputer."""
+        """Replace inf with stored max finite values."""
         X_clean = X_num.copy()
         for col in X_clean.columns:
             if np.isinf(X_clean[col]).any():
-                max_val = X_clean[col].replace([np.inf, -np.inf], np.nan).max()
-                if pd.isna(max_val):
-                    max_val = 0
-                X_clean[col] = X_clean[col].replace([np.inf, -np.inf], max_val)
+                X_clean[col] = X_clean[col].replace([np.inf, -np.inf], self.max_values_[col])
         return X_clean
 
     def _encode_categorical(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Apply label encoding to categorical columns."""
+        """Apply frequency encoding to categorical columns."""
         X_encoded = X.copy()
         for col in self.categorical_cols:
-            if col not in X_encoded.columns:
-                continue
-            le = self.label_encoders[col]
-            X_encoded[col] = X_encoded[col].fillna(self.missing_token).astype(str)
-            X_encoded[col] = X_encoded[col].apply(
-                lambda x: x if x in le.classes_ else self.missing_token
-            )
-            X_encoded[col] = le.transform(X_encoded[col])
+            if col in X_encoded.columns:
+                X_encoded[col] = X_encoded[col].fillna(self.missing_token).astype(str)
+                # Map frequency, default to 0.0001 (rare) for unseen
+                X_encoded[col] = X_encoded[col].map(self.freq_encoders_[col]).fillna(0.0001)
         return X_encoded
 
     def apply_smote(
@@ -157,7 +138,6 @@ class NIDSPreprocessor:
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Apply SMOTE to balance classes.
-        CRITICAL: Only use on TRAINING data, never on test/validation.
         """
         if not self.is_fitted:
             raise RuntimeError("Preprocessor must be fitted before applying SMOTE")
@@ -181,10 +161,6 @@ class NIDSPreprocessor:
             X_res, y_res = smote.fit_resample(X, y)
 
             print(f"[SMOTE] {X.shape[0]} -> {X_res.shape[0]} samples")
-            new_unique, new_counts = np.unique(y_res, return_counts=True)
-            for label, count in zip(new_unique, new_counts):
-                print(f"  {label}: {count}")
-
             return X_res, y_res
 
         except Exception as e:
@@ -194,3 +170,12 @@ class NIDSPreprocessor:
     def get_feature_names(self) -> List[str]:
         """Return list of feature names in order."""
         return self.feature_names
+
+    def validate_shape(self, X: pd.DataFrame):
+        missing_cols = set(self.feature_names) - set(X.columns)
+        if missing_cols:
+            raise ValueError(f"Feature shape mismatch. Missing: {missing_cols}")
+
+    def validate_no_nan(self, X: np.ndarray):
+        if np.isnan(X).any():
+            raise ValueError("CRITICAL: NaN values propagated past the imputer.")

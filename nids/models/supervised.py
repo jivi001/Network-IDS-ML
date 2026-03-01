@@ -5,15 +5,14 @@ Optimized hyperparameters per the research report:
 """
 
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
+from imblearn.ensemble import BalancedRandomForestClassifier
 import joblib
 from typing import Optional
 
 
 class SupervisedModel:
     """
-    Tier 1: Random Forest classifier for known attack detection.
-    Uses Gini impurity and balanced class weights.
+    Tier 1: Balanced Random Forest classifier for known attack detection.
     """
 
     def __init__(
@@ -33,11 +32,15 @@ class SupervisedModel:
             'criterion': 'gini',
             'random_state': random_state,
             'n_jobs': n_jobs,
-            'class_weight': 'balanced'
+            'sampling_strategy': 'all',
+            'replacement': True
         }
         params.update(kwargs)
+        # Drop unsupported param if accidentally passed
+        if 'class_weight' in params:
+            del params['class_weight']
         
-        self.model = RandomForestClassifier(**params)
+        self.model = BalancedRandomForestClassifier(**params)
         self.is_trained = False
 
     def train(self, X: np.ndarray, y: np.ndarray):

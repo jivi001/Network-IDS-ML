@@ -8,45 +8,98 @@ import logging
 import os
 import sys
 import time
-from pathlib import Path
-from typing import List
-
+import uuid
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 
+from nids.utils.logging import setup_logger
+from nids.governance.metrics_exporter import (
+    INFERENCE_REQUEST_COUNT,
+    INFERENCE_LATENCY,
+    ANOMALY_SCORE_GAUGE,
+    MODEL_VERSION_INFO
+)
+from prometheus_client import make_asgi_app
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from nids.pipelines import InferencePipeline
 
-# ─── Logging setup ────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logger = logging.getLogger("nids.api")
+# SOC JSON Logger
+logger = setup_logger("nids.api")
 
 # ─── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="NIDS Inference API",
-    description=(
-        "Hybrid Network Intrusion Detection System — REST inference endpoint. "
-        "Tier 1 uses Random Forest for known-attack classification; "
-        "Tier 2 uses Isolation Forest for zero-day anomaly detection."
-    ),
+    description="Hybrid Network Intrusion Detection System — REST inference endpoint.",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
 
+# Expose Prometheus Metrics
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
+
+@app.middleware("http")
+async def soc_resilience_middleware(request: Request, call_next):
+    if request.url.path == "/metrics":
+        return await call_next(request)
+        
+    req_id = str(uuid.uuid4())
+    start_time = time.time()
+    
+    try:
+        response = await call_next(request)
+        status = response.status_code
+    except ValueError as ve:
+        status = 422
+        logger.warning(f"Validation Failure: {str(ve)}", extra={"request_id": req_id})
+        return JSONResponse(status_code=422, content={"error": str(ve), "request_id": req_id})
+    except Exception as e:
+        status = 500
+        logger.error(f"Inference Crash: {str(e)}", extra={"request_id": req_id}, exc_info=True)
+        return JSONResponse(status_code=500, content={"error": "Internal Model Error", "request_id": req_id})
+    finally:
+        latency = (time.time() - start_time) * 1000
+        logger.info(
+            "inference_audit", 
+            extra={
+                "request_id": req_id,
+                "path": request.url.path,
+                "method": request.method,
+                "status_code": status,
+                "latency_ms": round(latency, 2)
+            }
+        )
+    return response
+
 # ─── Startup: load model ───────────────────────────────────────────────────────
 MODEL_DIR = os.getenv("MODEL_DIR", "models/production/v1.0.0")
+MODEL_VERSION = os.getenv("MODEL_VERSION", "v1.0.0")
 pipeline: InferencePipeline | None = None
 
+def emit_telemetry(features: np.ndarray, anomaly_scores: np.ndarray, req_id: str):
+    """Emits distribution metrics to SIEM for offline KS-test drift detection."""
+    mean_score = float(np.mean(anomaly_scores))
+    ANOMALY_SCORE_GAUGE.set(mean_score)
+    
+    logger.info(
+        "model_telemetry",
+        extra={
+            "request_id": req_id,
+            "iforest_score_mean": mean_score,
+            "iforest_score_min": float(np.min(anomaly_scores)),
+            "feature_norm": float(np.linalg.norm(features))
+        }
+    )
 
 @app.on_event("startup")
 async def startup_event():
     global pipeline
+    MODEL_VERSION_INFO.labels(version=MODEL_VERSION).set(1)
+    
     model_path = Path(MODEL_DIR)
     if not model_path.exists():
         logger.warning(

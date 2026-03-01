@@ -90,14 +90,10 @@ class HybridNIDS:
         self.is_trained = True
         print("\n[OK] Hybrid NIDS Training Complete")
 
-    def predict(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def predict(self, X: np.ndarray, confidence_threshold: float = 0.85) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Cascade prediction.
-
-        Returns:
-            (final_labels, tier_flags)
-            - final_labels: predicted class for each sample
-            - tier_flags: 1 = decided by Tier 1, 2 = decided by Tier 2
+        Cascade prediction with Uncertainty Routing.
+        Routes to Tier 2 if Tier 1 is uncertain OR predicts Normal.
         """
         if not self.is_trained:
             raise RuntimeError("System must be trained before prediction")
@@ -108,27 +104,44 @@ class HybridNIDS:
 
         # --- Tier 1: RF Classification ---
         tier1_preds = self.tier1_model.predict(X)
+        tier1_proba = self.tier1_model.predict_proba(X)
+        max_conf = np.max(tier1_proba, axis=1)
 
-        # Non-normal predictions are final (attack detected)
-        attack_mask = (tier1_preds != self.normal_label)
-        final_labels[attack_mask] = tier1_preds[attack_mask]
-        tier_flags[attack_mask] = 1
+        # High confidence Attack bypasses Tier 2
+        high_conf_attack_mask = (tier1_preds != self.normal_label) & (max_conf >= confidence_threshold)
 
-        # --- Tier 2: iForest on Tier-1-Normal samples ---
-        normal_mask = ~attack_mask
-        if normal_mask.sum() > 0:
-            X_tier2 = X[normal_mask]
+        # Assign Tier 1 Final Outcomes
+        final_labels[high_conf_attack_mask] = tier1_preds[high_conf_attack_mask]
+        tier_flags[high_conf_attack_mask] = 1
+
+        # --- Tier 2: iForest on uncertain or 'Normal' samples ---
+        tier2_mask = ~high_conf_attack_mask
+        if tier2_mask.sum() > 0:
+            X_tier2 = X[tier2_mask]
             tier2_preds = self.tier2_model.predict(X_tier2)
 
-            # iForest: 1 = normal, -1 = anomaly
-            tier2_labels = np.where(
-                tier2_preds == 1,
-                self.normal_label,
-                'Zero_Day_Anomaly'
-            )
+            # Route 1: Tier 2 claims Anomaly
+            anomaly_idx = tier2_preds == -1
+            
+            # Route 2: Tier 2 claims Normal
+            normal_idx = tier2_preds == 1
+            
+            tier2_labels = np.empty(tier2_mask.sum(), dtype=object)
+            
+            # If Tier 2 says anomaly, it's an anomaly.
+            tier2_labels[anomaly_idx] = 'Zero_Day_Anomaly'
+            
+            # If Tier 2 says normal, but Tier 1 thought it was an attack (with low confidence), it is suspicious
+            t1_original_preds = tier1_preds[tier2_mask]
+            suspicious_mask = normal_idx & (t1_original_preds != self.normal_label)
+            tier2_labels[suspicious_mask] = 'Suspicious_Low_Conf_Attack'
+            
+            # If Tier 2 says normal and Tier 1 thought it was normal, it's normal.
+            pure_normal_mask = normal_idx & (t1_original_preds == self.normal_label)
+            tier2_labels[pure_normal_mask] = self.normal_label
 
-            final_labels[normal_mask] = tier2_labels
-            tier_flags[normal_mask] = 2
+            final_labels[tier2_mask] = tier2_labels
+            tier_flags[tier2_mask] = 2
 
         return final_labels, tier_flags
 
