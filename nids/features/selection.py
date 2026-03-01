@@ -47,8 +47,7 @@ class FeatureSelector:
             n_estimators=50,
             max_depth=10,
             random_state=self.random_state,
-            n_jobs=-1,
-            class_weight='balanced'
+            n_jobs=-1
         )
 
         if self.method == 'importance':

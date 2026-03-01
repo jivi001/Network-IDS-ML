@@ -78,26 +78,21 @@ class TrainingPipeline:
         # 2. Preprocess
         X_train_processed, X_test_processed = self._preprocess(X_train, X_test)
         
-        # 3. Apply SMOTE
-        X_train_balanced, y_train_balanced = self._apply_smote(
-            X_train_processed, y_train
-        )
-        
-        # 4. Feature selection
+        # 3. Feature selection (BEFORE any sampling)
         X_train_selected, X_test_selected = self._select_features(
-            X_train_balanced, y_train_balanced, X_test_processed
+            X_train_processed, y_train, X_test_processed
         )
         
-        # 5. Train models
-        model = self._train_models(X_train_selected, y_train_balanced)
+        # 4. Train models (BalancedRandomForest handles imbalance natively)
+        model = self._train_models(X_train_selected, y_train)
         
-        # 6. Evaluate
+        # 5. Evaluate
         metrics = self._evaluate(model, X_test_selected, y_test)
         
-        # 7. Save artifacts
+        # 6. Save artifacts
         self._save_artifacts(model, metrics)
 
-        # 8. Log to MLflow
+        # 7. Log to MLflow
         if use_mlflow:
             self._log_to_mlflow(metrics)
         
