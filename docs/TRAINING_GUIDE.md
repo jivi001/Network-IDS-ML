@@ -1,116 +1,59 @@
-# 🎓 Training Guide
+# Model Training and Evaluation Guide
 
-This guide explains how to train the Hybrid NIDS model on your datasets.
+This document describes the parameters, workflows, and strict configuration bounds required to continuously integrate datasets into the NIDS-ML algorithmic architecture.
 
----
+## 1. Dataset Matrix Constraints
 
-## Table of Contents
+Data dimensions operating within NIDS-ML must map sequentially against labeled arrays. Supervised inputs require definitive attack categorization columns, while anomaly detection operations subset exclusively upon data tagged nominally as "Normal".
 
-1. [Prepare Your Dataset](#prepare-your-dataset)
-2. [Configure Training](#configure-training)
-3. [Run Training](#run-training)
-4. [Monitor Progress](#monitor-progress)
-5. [Evaluate Results](#evaluate-results)
-6. [Advanced Training](#advanced-training)
+### Formats
 
----
+- **NSL-KDD**: 41 continuous and discrete dimensions.
+- **UNSW-NB15**: 49 dimensions detailing flow specifics.
 
-## 1. Prepare Your Dataset
+Files strictly resolve against relative configurations mapped internally at `configs/datasets/`. Paths to `raw/` dependencies must conform to absolute or standardized localized directory references prior to loading.
 
-### Supported Datasets
+## 2. Training Configuration Schemas
 
-The system supports three dataset formats:
-- **NSL-KDD**: 41 features + label column
-- **UNSW-NB15**: 49 features + label column
-- **CIC-IDS2017**: 80 features + Label column
+The operational behavior of the training pipeline is heavily parameterized within YAML structures logic located universally under `configs/training/`.
 
-### Dataset Structure
-
-Your dataset should be a CSV file with:
-- **Features**: Network traffic characteristics (duration, bytes, flags, etc.)
-- **Label column**: Attack type or "Normal"
-
-Example:
-```csv
-duration,protocol_type,service,flag,src_bytes,dst_bytes,...,label
-0,tcp,http,SF,181,5450,...,Normal
-0,tcp,http,SF,239,486,...,DoS
-```
-
-### Place Dataset Files
-
-```bash
-# Create data directory structure
-mkdir -p data/raw
-
-# Copy your datasets
-cp /path/to/nsl_kdd_train.csv data/raw/
-cp /path/to/nsl_kdd_test.csv data/raw/
-```
-
----
-
-## 2. Configure Training
-
-### Create Configuration File
-
-Copy the default config and customize it:
-
-```bash
-cp configs/training/default.yaml configs/training/my_experiment.yaml
-```
-
-### Edit Configuration
-
-Open `configs/training/my_experiment.yaml`:
+### Schema Map Example (`my_experiment.yaml`):
 
 ```yaml
-# Experiment name
-experiment_name: nsl_kdd_baseline
+experiment_name: production_cascade_v1
 
-# Dataset configuration
 dataset:
-  name: nsl_kdd
-  config: configs/datasets/nsl_kdd.yaml
+  name: unsw_nb15
+  config: configs/datasets/unsw_nb15.yaml
   test_size: 0.3
   random_state: 42
   stratify: true
 
-# Preprocessing
 preprocessing:
-  apply_smote: true
-  smote_strategy: auto
-  smote_k_neighbors: 5
-  scaling_method: standard
+  apply_smote: false # Disabled strictly for ensembles utilizing internal sample balancing
+  scaling_method: robust
 
-# Feature selection
 feature_selection:
-  method: rfe
-  n_features: 20
-  estimator: random_forest
+  method: combined # Uses Borda count fusion (RF + SHAP + MI)
+  n_features: 25
 
-# Model hyperparameters
 models:
+  use_stacking: true
+  use_vae: true
   tier1:
-    type: random_forest
-    config: configs/models/random_forest.yaml
+    config: configs/models/stacking.yaml
   tier2:
-    type: isolation_forest
-    config: configs/models/isolation_forest.yaml
+    config: configs/models/vae.yaml
 
-# Training settings
 training:
   normal_label: Normal
   save_preprocessor: true
   save_feature_selector: true
 
-# Evaluation
 evaluation:
   compute_shap: true
-  plot_confusion_matrix: true
-  plot_pr_curve: true
+  calculate_mcc: true
 
-# Output
 output:
   base_dir: experiments/runs
   save_models: true
@@ -118,281 +61,43 @@ output:
   save_plots: true
 ```
 
-### Update Dataset Config
+## 3. Parameter Boundary Adjustments
 
-Edit `configs/datasets/nsl_kdd.yaml`:
+### Tier 1: Stacking Ensemble (`configs/models/stacking.yaml`)
 
-```yaml
-dataset_type: nsl_kdd
-description: NSL-KDD intrusion detection dataset
+Tier 1 calculations prioritize non-linear boundaries. Hyperparameters require specific adjustments targeting dataset variability:
 
-# Update paths to your actual files
-paths:
-  train: data/raw/nsl_kdd_train.csv
-  test: data/raw/nsl_kdd_test.csv
+- **`n_estimators` (BalancedRandomForest)**: Controls baseline bootstrap magnitude. Scaled default is 200. Increases stabilize variance at latency costs.
+- **`is_unbalance` (LGBM)**: Strictly boolean. Handles leaf-wise growth structures emphasizing specific minority classes inherent to U2R/R2L behaviors.
+- **`C` (SVC)**: Regularization parameter smoothing geometric margin lines. Typically restricted between 0.1 and 1.0.
 
-# Label information
-labels:
-  normal: Normal
-  attack_types:
-    - DoS
-    - Probe
-    - R2L
-    - U2R
-```
+### Tier 2: VAE Fusion (`configs/models/vae.yaml`)
 
----
+Anomaly detection requires precise dimensionality reduction.
 
-## 3. Run Training
+- **`latent_dim`**: Establishes information bottlenecks. Extremely large datasets require bounds between 16 and 32 to prevent information overflow.
+- **`threshold_percentile`**: Operates bounding cutoff limits for error distributions. Defaults uniformly to 95.0. Values > 99.0 significantly reduce FP thresholds and simultaneously reduce overall detection matrix scope.
 
-### Basic Training
+## 4. Execution Logic
+
+Deploy targeted parameter structures utilizing isolated environment runtimes:
 
 ```bash
 python scripts/train.py --config configs/training/my_experiment.yaml
 ```
 
-### With Custom Experiment Name
-
-```bash
-python scripts/train.py \
-  --config configs/training/my_experiment.yaml \
-  --experiment-name nsl_kdd_v2
-```
-
-### Expected Output
-
-```
-Starting experiment: nsl_kdd_baseline_20260210_214500
-
-Loading data...
-Train: (125973, 41), Test: (22544, 41)
-
-Preprocessing...
-[OK] Preprocessing complete: (125973, 41)
-
-Applying SMOTE...
-[SMOTE] 125973 -> 126000 samples
-[OK] SMOTE complete
-
-Feature selection...
-[FeatureSelector] Starting RFE to select top 20 features...
-[OK] Feature selection: (126000, 20)
-
-Training Hybrid NIDS...
-==================================================
-TIER 1: Training Random Forest
-==================================================
-[Tier1-RF] Trained on 126000 samples, 20 features
-
-==================================================
-TIER 2: Training Isolation Forest
-==================================================
-[Tier2-iForest] Trained on 63000 normal samples
-[Tier2-iForest] Anomaly threshold: -0.0234
-
-[OK] Hybrid NIDS Training Complete
-
-Evaluating...
-======================================================================
-  NIDS EVALUATION REPORT
-======================================================================
-
---- Overall Metrics ---
-Accuracy:  0.9523
-Recall:    0.9523
-Precision: 0.9180
-F1-Score:  0.9348
-
-Experiment complete: nsl_kdd_baseline_20260210_214500
-Results saved to: experiments/runs/nsl_kdd_baseline_20260210_214500
-```
-
----
-
-## 4. Monitor Progress
-
-### Check Experiment Directory
-
-```bash
-ls experiments/runs/nsl_kdd_baseline_20260210_214500/
-
-# Output:
-# config.yaml           # Config snapshot
-# metadata.json         # Experiment metadata
-# metrics.json          # Performance metrics
-# models/               # Trained models
-#   ├── tier1_rf.pkl
-#   ├── tier2_iforest.pkl
-#   ├── preprocessor.pkl
-#   └── feature_selector.pkl
-# plots/                # Visualizations
-#   ├── confusion_matrix.png
-#   ├── pr_curve.png
-#   └── shap_summary.png
-```
-
-### View Metrics
-
-```bash
-cat experiments/runs/nsl_kdd_baseline_20260210_214500/metrics.json
-```
-
-```json
-{
-  "accuracy": 0.9523,
-  "recall": 0.9523,
-  "precision": 0.9180,
-  "f1_score": 0.9348,
-  "attack_detection_rate": 0.9523,
-  "false_alarm_rate": 0.0820
-}
-```
-
----
-
-## 5. Evaluate Results
-
-### Evaluate on Test Set
+Metrics execution operates continuously over model finalization mapping explicit probability values:
 
 ```bash
 python scripts/evaluate.py \
-  --model experiments/runs/nsl_kdd_baseline_20260210_214500/models \
-  --dataset data/raw/nsl_kdd_test.csv \
-  --dataset-type nsl_kdd
+  --model experiments/runs/<iteration>/models \
+  --dataset data/raw/validation_matrix.csv \
+  --dataset-type unsw_nb15
 ```
 
-### Cross-Dataset Evaluation
+## 5. Drift and Active Learning Configurations
 
-Test generalization on a different dataset:
+Once a model establishes baseline constraints, it operates over drift-aware monitoring pipelines.
 
-```bash
-python scripts/cross_dataset_eval.py \
-  --source-model experiments/runs/nsl_kdd_baseline_20260210_214500/models \
-  --source-dataset nsl_kdd \
-  --target-dataset unsw_nb15 \
-  --target-data data/raw/unsw_nb15_test.csv \
-  --output experiments/cross_dataset/nsl_to_unsw
-```
-
----
-
-## 6. Advanced Training
-
-### Hyperparameter Tuning
-
-Edit model configs to tune hyperparameters:
-
-**Random Forest** (`configs/models/random_forest.yaml`):
-```yaml
-hyperparameters:
-  n_estimators: 300        # Increase for better performance
-  max_depth: 25            # Deeper trees
-  min_samples_split: 3     # More granular splits
-  class_weight: balanced
-```
-
-**Isolation Forest** (`configs/models/isolation_forest.yaml`):
-```yaml
-hyperparameters:
-  contamination: 0.03      # Expected anomaly rate
-  n_estimators: 300        # More trees for stability
-```
-
-### Custom Feature Selection
-
-Modify feature selection settings:
-
-```yaml
-feature_selection:
-  method: rfe
-  n_features: 30           # Select more features
-  estimator: random_forest
-```
-
-### Disable SMOTE
-
-For balanced datasets:
-
-```yaml
-preprocessing:
-  apply_smote: false
-```
-
-### Multiple Experiments
-
-Run multiple experiments with different configs:
-
-```bash
-# Experiment 1: Baseline
-python scripts/train.py --config configs/training/baseline.yaml
-
-# Experiment 2: More features
-python scripts/train.py --config configs/training/more_features.yaml
-
-# Experiment 3: No SMOTE
-python scripts/train.py --config configs/training/no_smote.yaml
-```
-
----
-
-## 📊 Training Tips
-
-### 1. Start with Default Config
-Use `configs/training/default.yaml` as a starting point.
-
-### 2. Monitor Class Imbalance
-Check class distribution in your dataset. Use SMOTE if imbalanced.
-
-### 3. Feature Selection Impact
-More features ≠ better performance. Start with 20, tune if needed.
-
-### 4. Contamination Rate
-Set Isolation Forest contamination to expected anomaly rate in production.
-
-### 5. Save Everything
-Always save preprocessor and feature selector for production deployment.
-
-### 6. Experiment Tracking
-Use descriptive experiment names to track different configurations.
-
----
-
-## 🐛 Troubleshooting
-
-### Issue: Out of Memory
-
-**Solution**: Reduce dataset size or use chunked loading:
-```python
-# In custom training script
-loader = DataLoader(dataset_type='nsl_kdd')
-df = loader.load_csv('data/raw/nsl_kdd_train.csv', nrows=50000)
-```
-
-### Issue: Poor Performance
-
-**Solutions**:
-1. Increase `n_estimators` in model configs
-2. Adjust feature selection (`n_features`)
-3. Check class balance (use SMOTE if needed)
-4. Verify dataset quality (no missing values)
-
-### Issue: Training Too Slow
-
-**Solutions**:
-1. Reduce `n_estimators`
-2. Set `n_jobs=-1` to use all CPU cores
-3. Reduce dataset size for testing
-
----
-
-## ✅ Next Steps
-
-After training:
-1. **Evaluate**: Test on holdout dataset
-2. **Cross-validate**: Test on different datasets
-3. **Deploy**: Move to production (see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md))
-4. **Monitor**: Track performance in production
-
----
-
-For production deployment, see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
+- **ADWIN Variances**: Instantiated during container deployment. Requires explicitly monitored variance arrays defining failure rates.
+- **Feedback Sampling**: Generates uncertain variables against Shannon entropy, grouping outputs explicitly via K-Means vector distances. When `FeedbackBuffer` boundaries (default JSON config block limits) reach 100 samples, the CI/CD pipeline extracts verified labels and generates internal Github Actions triggers referencing localized re-training subroutines.

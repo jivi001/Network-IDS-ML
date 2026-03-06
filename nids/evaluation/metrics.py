@@ -5,6 +5,7 @@ Generates confusion matrix, PR curves, and feature importance plots.
 """
 
 import numpy as np
+import time
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
@@ -20,9 +21,10 @@ from sklearn.metrics import (
     fbeta_score,
     recall_score,
     precision_score,
-    accuracy_score
+    accuracy_score,
+    matthews_corrcoef,
 )
-from typing import Optional, List
+from typing import Optional, List, Dict
 from tabulate import tabulate
 import os
 
@@ -80,17 +82,23 @@ class NIDSEvaluator:
         y_pred: np.ndarray,
         y_proba: Optional[np.ndarray] = None,
         labels: Optional[list] = None,
-        normal_label: str = 'Normal'
+        normal_label: str = 'Normal',
+        attack_families: Optional[Dict[str, List[str]]] = None,
+        detect_latency_ms: Optional[float] = None,
     ) -> dict:
         """
         Comprehensive security-focused evaluation.
 
         Args:
-            y_true: Ground truth labels
-            y_pred: Predicted labels
-            y_proba: Prediction probabilities (for PR curves)
-            labels: List of label names
-            normal_label: Label string for benign traffic
+            y_true:            Ground truth labels
+            y_pred:            Predicted labels
+            y_proba:           Prediction probabilities (for PR curves)
+            labels:            List of label names
+            normal_label:      Label string for benign traffic
+            attack_families:   Dict mapping family name → list of attack labels
+                               e.g. {'DoS': ['neptune','smurf'], 'Probe': ['ipsweep']}
+                               If provided, per-family metrics are computed.
+            detect_latency_ms: Pre-computed latency (ms/sample). If None, not reported.
 
         Returns:
             Dictionary of all computed metrics
@@ -112,11 +120,11 @@ class NIDSEvaluator:
         self._plot_confusion_matrix(cm, labels)
 
         # --- Overall Weighted Metrics ---
-        recall = recall_score(y_true, y_pred, average='weighted', zero_division=0)
+        recall    = recall_score(y_true, y_pred, average='weighted', zero_division=0)
         precision = precision_score(y_true, y_pred, average='weighted', zero_division=0)
-        f1 = f1_score(y_true, y_pred, average='weighted', zero_division=0)
-        f2 = fbeta_score(y_true, y_pred, beta=2, average='weighted', zero_division=0)
-        accuracy = accuracy_score(y_true, y_pred)
+        f1        = f1_score(y_true, y_pred, average='weighted', zero_division=0)
+        f2        = fbeta_score(y_true, y_pred, beta=2, average='weighted', zero_division=0)
+        accuracy  = accuracy_score(y_true, y_pred)
 
         metrics_table = [
             ["Accuracy", f"{accuracy:.4f}"],
@@ -131,16 +139,12 @@ class NIDSEvaluator:
         # --- Security Metrics (Binary: Attack vs Normal) ---
         sec_metrics = self._compute_security_metrics(y_true, y_pred, normal_label)
 
-        # Determine probability column labels (y_proba may have fewer columns
-        # than `labels` when Tier 2 adds classes like Zero_Day_Anomaly)
+        # Determine probability column labels
         proba_labels = labels
         if y_proba is not None and labels is not None:
             if y_proba.ndim > 1 and y_proba.shape[1] != len(labels):
-                # y_proba columns = RF classes (sorted alphabetically by sklearn)
-                # Filter labels to only the ones that appear in the RF model
                 proba_labels = sorted([l for l in labels if l != 'Zero_Day_Anomaly'])
                 if y_proba.shape[1] != len(proba_labels):
-                    # Last resort: just use sorted labels up to the column count
                     proba_labels = sorted(set(y_true))[:y_proba.shape[1]]
 
         # --- PR Curve ---
@@ -161,20 +165,51 @@ class NIDSEvaluator:
                 y_true, y_proba, normal_label, labels=proba_labels
             )
 
-        return {
+        # --- Matthews Correlation Coefficient (binary) ---
+        y_true_bin = (np.array(y_true) != normal_label).astype(int)
+        y_pred_bin = (np.array(y_pred) != normal_label).astype(int)
+        mcc = float(matthews_corrcoef(y_true_bin, y_pred_bin))
+
+        # --- Alert Fatigue Index ---
+        tp = sec_metrics['tp']
+        fp = sec_metrics['fp']
+        alert_fatigue_index = fp / (tp + fp + 1e-9)
+
+        print(f"\n--- Research-Grade Metrics ---")
+        extra_table = [
+            ["Matthews Corrcoef (MCC)", f"{mcc:.4f}"],
+            ["Alert Fatigue Index (FP / Total Alerts)", f"{alert_fatigue_index:.4f}"],
+        ]
+        if detect_latency_ms is not None:
+            extra_table.append(["Detection Latency (ms/sample)", f"{detect_latency_ms:.4f}"])
+        print(tabulate(extra_table, headers=["Metric", "Value"], tablefmt="grid"))
+
+        # --- Per-attack-family metrics ---
+        family_metrics = {}
+        if attack_families:
+            family_metrics = self._compute_family_metrics(
+                y_true, y_pred, attack_families, normal_label
+            )
+
+        result = {
             'accuracy': accuracy,
             'recall': recall,
             'precision': precision,
             'f1_score': f1,
             'f2_score': f2,
+            'mcc': mcc,
             'roc_auc': roc_auc,
             'pr_auc': pr_auc_val,
+            'alert_fatigue_index': alert_fatigue_index,
+            'detect_latency_ms': detect_latency_ms,
             'optimal_threshold': optimal_threshold,
             'optimal_f2_at_threshold': best_f2,
             'confusion_matrix': cm.tolist(),
             'classification_report': report,
-            **sec_metrics
+            'family_metrics': family_metrics,
+            **sec_metrics,
         }
+        return result
 
     def _compute_security_metrics(
         self, y_true: np.ndarray, y_pred: np.ndarray, normal_label: str
@@ -191,7 +226,7 @@ class NIDSEvaluator:
         fn = int(np.sum((y_true_binary == 1) & (y_pred_binary == 0)))
         tp = int(np.sum((y_true_binary == 1) & (y_pred_binary == 1)))
 
-        attack_recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        attack_recall    = tp / (tp + fn) if (tp + fn) > 0 else 0.0
         false_alarm_rate = fp / (fp + tn) if (fp + tn) > 0 else 0.0
 
         sec_table = [
@@ -210,6 +245,40 @@ class NIDSEvaluator:
             'attack_detection_rate': attack_recall,
             'false_alarm_rate': false_alarm_rate,
         }
+
+    def _compute_family_metrics(
+        self,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        attack_families: Dict[str, List[str]],
+        normal_label: str,
+    ) -> dict:
+        """
+        Compute per-attack-family precision, recall, F2.
+
+        Args:
+            attack_families: e.g. {'DoS': ['neptune', 'smurf'], 'Probe': ['ipsweep']}
+        """
+        y_true_arr = np.array(y_true)
+        y_pred_arr = np.array(y_pred)
+        results = {}
+        rows = []
+        for family, attack_types in attack_families.items():
+            # Include normal + this family's attacks
+            relevant = np.isin(y_true_arr, attack_types + [normal_label])
+            if relevant.sum() < 10:
+                continue
+            y_t = (np.isin(y_true_arr[relevant], attack_types)).astype(int)
+            y_p = (np.isin(y_pred_arr[relevant], attack_types)).astype(int)
+            p   = precision_score(y_t, y_p, zero_division=0)
+            r   = recall_score(y_t, y_p, zero_division=0)
+            f2  = fbeta_score(y_t, y_p, beta=2, zero_division=0)
+            results[family] = {'precision': p, 'recall': r, 'f2': f2, 'n_samples': int(relevant.sum())}
+            rows.append([family, f"{p:.4f}", f"{r:.4f}", f"{f2:.4f}", int(relevant.sum())])
+        if rows:
+            print("\n--- Per-Attack-Family Metrics ---")
+            print(tabulate(rows, headers=["Family", "Precision", "Recall", "F2", "N"], tablefmt="grid"))
+        return results
 
     def _plot_confusion_matrix(
         self, cm: np.ndarray, labels: Optional[list] = None
