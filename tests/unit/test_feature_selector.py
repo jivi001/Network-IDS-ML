@@ -23,7 +23,7 @@ def test_feature_selector_shap(dummy_data):
     except ImportError:
         pytest.skip("shap is not installed")
         
-    X_sel = selector.fit_transform(X, y)
+    X_sel = selector.fit_transform(X, y, feature_names=feature_names)
     assert X_sel.shape == (100, 3)
     assert len(selector.get_selected_names()) == 3
     # Ensure predictive features are selected
@@ -34,7 +34,7 @@ def test_feature_selector_mutual_info(dummy_data):
     X, y, feature_names = dummy_data
     selector = FeatureSelector(n_features=4, method='mutual_info')
     
-    X_sel = selector.fit_transform(X, y)
+    X_sel = selector.fit_transform(X, y, feature_names=feature_names)
     assert X_sel.shape == (100, 4)
     assert len(selector.get_selected_names()) == 4
     # Ensure predictive features are selected
@@ -46,7 +46,7 @@ def test_feature_selector_combined(dummy_data):
     X, y, feature_names = dummy_data
     selector = FeatureSelector(n_features=5, method='combined')
     
-    X_sel = selector.fit_transform(X, y)
+    X_sel = selector.fit_transform(X, y, feature_names=feature_names)
     assert X_sel.shape == (100, 5)
     assert len(selector.get_selected_names()) == 5
     assert "f0" in selector.get_selected_names()

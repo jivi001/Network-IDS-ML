@@ -35,8 +35,8 @@ def test_adwin_initializes_and_updates():
 def test_adwin_reset():
     detector = ADWINDriftDetector()
     detector.drift_detected = True
-    detector.drift_events = [1, 2, 3]
+    detector._drift_events = [1, 2, 3] # Setting internal property
     
     detector.reset()
     assert not detector.drift_detected
-    assert len(detector.drift_events) == 0
+    assert len(detector.drift_history) == 0

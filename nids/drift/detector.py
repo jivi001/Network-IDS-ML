@@ -104,6 +104,7 @@ class ADWINDriftDetector:
             self._ph_sum = 0.0
             self._ph_min = float('inf')
         self.drift_detected = False
+        self._drift_events = []
         self._n_samples = 0
 
     @property

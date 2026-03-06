@@ -200,6 +200,8 @@ class FeatureSelector:
             )
         else:
             mean_abs = np.abs(shap_values).mean(axis=0)
+            if len(mean_abs.shape) > 1:
+                mean_abs = mean_abs.mean(axis=1)
 
         self._scores = mean_abs
         mask = np.zeros(X.shape[1], dtype=bool)
@@ -249,6 +251,9 @@ class FeatureSelector:
                 mean_abs = np.mean([np.abs(sv).mean(axis=0) for sv in shap_vals], axis=0)
             else:
                 mean_abs = np.abs(shap_vals).mean(axis=0)
+                # If shap_vals was (n_samples, n_features, n_classes), mean_abs is (n_features, n_classes)
+                if len(mean_abs.shape) > 1:
+                    mean_abs = mean_abs.mean(axis=1)
             shap_ranks = np.argsort(np.argsort(mean_abs))
             print(f"  [Borda] SHAP computed on {n_sample} samples")
         except ImportError:

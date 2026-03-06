@@ -44,6 +44,10 @@ def test_evaluate_family_metrics(dummy_results):
     y_true, y_pred, _, labels = dummy_results
     evaluator = NIDSEvaluator()
     
+    # Expand data to bypass the 10-minimum-sample requirement for accurate testing
+    y_true = np.concatenate([y_true, np.array(["Normal", "DoS"] * 5)])
+    y_pred = np.concatenate([y_pred, np.array(["Normal", "DoS"] * 5)])
+    
     families = {
         "DoS_Family": ["DoS"],
         "Probe_Family": ["Probe"]

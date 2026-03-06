@@ -21,7 +21,7 @@ def test_uncertainty_diversity_query():
             return proba
 
     query = UncertaintyDiversityQuery(budget=3, uncertainty_pool=10)
-    indices = query.select(X, MockModel())
+    indices = query.select(MockModel(), X)
     
     assert len(indices) == 3
     # The most uncertain samples (indices 2, 3, 7, 8, 12, 13, 17, 18) should be prioritized
@@ -33,43 +33,46 @@ def test_feedback_buffer(tmp_path):
     buffer_path = tmp_path / "test_buffer.json"
     buffer = FeedbackBuffer(buffer_path=str(buffer_path), trigger_size=3)
     
-    assert len(buffer.buffer) == 0
-    assert not buffer.is_trigger_reached()
+    assert len(buffer) == 0
+    assert not buffer.should_retrain()
     
     # Add examples
-    buffer.add_feedback(
+    buffer.add(
+        alert_id="id1",
         features=[0.1, 0.2], 
-        original_pred="Normal", 
-        analyst_label="DoS", 
-        action="relabel"
+        original_label="Normal", 
+        corrected_label="DoS", 
+        feedback_type="relabel"
     )
-    buffer.add_feedback(
+    buffer.add(
+        alert_id="id2",
         features=[0.8, 0.9], 
-        original_pred="Probe", 
-        analyst_label="Probe", 
-        action="approve"
+        original_label="Probe", 
+        corrected_label="Probe", 
+        feedback_type="approve"
     )
     
-    assert len(buffer.buffer) == 2
-    assert not buffer.is_trigger_reached()
+    assert len(buffer) == 2
+    assert not buffer.should_retrain()
     
-    buffer.add_feedback(
+    buffer.add(
+        alert_id="id3",
         features=[0.5, 0.5], 
-        original_pred="DoS", 
-        analyst_label="Normal", 
-        action="reject"
+        original_label="DoS", 
+        corrected_label="Normal", 
+        feedback_type="reject"
     )
     
-    assert len(buffer.buffer) == 3
-    assert buffer.is_trigger_reached()
+    assert len(buffer) == 3
+    assert buffer.should_retrain()
     
     # Test export
     csv_path = tmp_path / "export.csv"
-    exported = buffer.export_to_csv(str(csv_path))
-    assert exported == str(csv_path)
-    assert os.path.exists(exported)
+    exported = buffer.export_labeled_dataset(str(csv_path))
+    assert exported == 3
+    assert os.path.exists(str(csv_path))
     
     # Test clear
     buffer.clear()
-    assert len(buffer.buffer) == 0
-    assert not buffer.is_trigger_reached()
+    assert len(buffer) == 0
+    assert not buffer.should_retrain()
