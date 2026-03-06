@@ -58,7 +58,7 @@ class TestHybridNIDSPrediction:
 
     def test_predict_only_valid_labels(self, trained_components):
         _, _, model, X_sel, _ = trained_components
-        valid = {"Normal", "DoS", "Zero_Day_Anomaly"}
+        valid = {"Normal", "DoS", "Zero_Day_Anomaly", "Suspicious_Low_Conf_Attack"}
         preds, _ = model.predict(X_sel)
         assert set(preds).issubset(valid), f"Unexpected labels: {set(preds) - valid}"
 

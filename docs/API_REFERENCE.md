@@ -1,238 +1,103 @@
-# NIDS API Reference
+# API Reference: Network Intrusion Detection System
 
-This document provides a comprehensive reference for the Network Intrusion Detection System (NIDS) API.
+This document specifies the technical boundaries, signatures, and input-output schemas expected across the core NIDS machine learning package and its respective deployment modules.
 
-## Table of Contents
+## 1. Machine Learning Models
 
-- [Data Module](#data-module)
-- [Preprocessing](#preprocessing)
-- [Feature Selection](#feature-selection)
-- [Models](#models)
-- [Evaluation](#evaluation)
-- [Explainability](#explainability)
-- [Pipelines](#pipelines)
-- [Utilities](#utilities)
+### `nids.models.stacking.StackingEnsemble`
+Implements the Tier 1 primary supervised classification layer relying on a stacked meta-learner algorithm framework.
 
----
+- **`__init__(random_state: int = 42, **kwargs)`**
+  Initialize the core classifiers (BalancedRandomForest, LGBMClassifier, and CalibratedClassifierCV) with their expected meta-learner (LogisticRegression). Arbitrary keyword specifications define underlying parameters (e.g. `n_estimators_brf`, `svc_c`).
+- **`train(X: np.ndarray, y: np.ndarray)`**
+  Execute cross-fitting training algorithms. Generates out-of-fold probabilistic maps to inform the secondary meta-learner processing requirements.
+- **`predict(X: np.ndarray) -> np.ndarray`**
+  Emits designated class estimations following complete algorithm processing.
+- **`predict_proba(X: np.ndarray) -> np.ndarray`**
+  Outputs direct floating-point probability matrices normalized between 0.0 and 1.0 spanning the categorical parameters.
 
-## Data Module
+### `nids.models.anomaly.VAEAnomalyDetector`
+Constructs the PyTorch Variational Autoencoder utilized specifically within zero-day anomaly operations.
 
-### `nids.data.DataLoader`
+- **`__init__(n_features: int, latent_dim: int = 16, epochs: int = 50, batch_size: int = 256, learning_rate: float = 1e-3, beta: float = 1.0, threshold_percentile: float = 95.0)`**
+  Defines the spatial architecture and iterative processing parameters spanning the encoder and sequential decoding nodes.
+- **`train(X: np.ndarray)`**
+  Trains exclusively on data specified mathematically as normal traffic mapping variables against optimized multi-dimensional constants. Calculates threshold parameters utilizing empirical error assessments computed post-training.
+- **`reconstruction_error(X: np.ndarray) -> np.ndarray`**
+  Outputs the absolute scalar difference computed spanning the initial spatial coordinate inputs against decoded variables.
+- **`predict(X: np.ndarray) -> np.ndarray`**
+  Classifies input objects. Produces continuous vectors mapping directly to integer values `1` (normal) and `-1` (anomaly).
 
-Handles loading and basic validation of network intrusion datasets (NSL-KDD, UNSW-NB15, CIC-IDS2017).
+### `nids.models.anomaly.FusionAnomalyDetector`
+Manages the integration methodology coupling generic Isolation Forest schemas mathematically mapped to VAE errors.
 
-```python
-from nids.data import DataLoader
-
-loader = DataLoader(dataset_type='nsl-kdd')
-df = loader.load_csv('path/to/data.csv')
-X, y = loader.split_features_labels(df)
-```
-
-**Methods:**
-
-- **`__init__(dataset_type: str = 'auto')`**
-  - Initialize DataLoader. `dataset_type` can be 'nsl-kdd', 'unsw-nb15', 'cic-ids2017', or 'auto'.
-
-- **`load_csv(filepath: str, chunksize: Optional[int] = None, nrows: Optional[int] = None) -> pd.DataFrame`**
-  - Load CSV file with optional chunking.
-
-- **`split_features_labels(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]`**
-  - Split DataFrame into features (X) and labels (y).
-
-- **`get_dataset_info(df: pd.DataFrame) -> dict`**
-  - Return summary statistics about the dataset.
-
-### `nids.data.DatasetValidator`
-
-Validates dataset schema and distributions to detect drift and data quality issues.
-
-**Methods:**
-
-- **`__init__(expected_schema: Optional[Dict[str, str]] = None)`**
-  - Initialize validator with expected schema (column names to dtypes).
-
-- **`validate(df: pd.DataFrame) -> List[str]`**
-  - Validate dataset against expected schema. Returns list of error messages.
-
-- **`detect_distribution_shift(reference_df: pd.DataFrame, current_df: pd.DataFrame, alpha: float = 0.05) -> Dict`**
-  - Detect distribution shift using Kolmogorov-Smirnov test.
-
----
-
-## Preprocessing
-
-### `nids.preprocessing.NIDSPreprocessor`
-
-Unified preprocessing pipeline handling cleaning, label encoding, scaling, and SMOTE (training only).
-
-```python
-from nids.preprocessing import NIDSPreprocessor
-
-preprocessor = NIDSPreprocessor()
-X_train_scaled = preprocessor.fit_transform(X_train)
-X_test_scaled = preprocessor.transform(X_test)
-```
-
-**Methods:**
-
-- **`fit(X: pd.DataFrame, y: Optional[pd.Series] = None)`**
-  - Fit all transformations (Imputer, LabelEncoder, StandardScaler) on training data.
-
-- **`transform(X: pd.DataFrame) -> np.ndarray`**
-  - Transform data using the fitted pipeline.
-
-- **`apply_smote(X: np.ndarray, y: np.ndarray, sampling_strategy='auto', k_neighbors=5) -> Tuple[np.ndarray, np.ndarray]`**
-  - Apply SMOTE to balance classes. **CRITICAL**: Use on training data ONLY.
-
-- **`get_feature_names() -> List[str]`**
-  - Return list of feature names in order.
-
----
-
-## Feature Selection
-
-### `nids.features.FeatureSelector`
-
-Selects top features using Recursive Feature Elimination (RFE) with a Random Forest estimator.
-
-**Methods:**
-
-- **`__init__(n_features: int = 20, random_state: int = 42)`**
-  - Initialize selector.
-
-- **`fit(X: np.ndarray, y: np.ndarray, feature_names: Optional[List[str]] = None)`**
-  - Fit RFE to select top `n_features`.
-
-- **`transform(X: np.ndarray) -> np.ndarray`**
-  - Reduce X to selected features.
-
-- **`get_feature_importance_ranking() -> List[Tuple[str, float]]`**
-  - Return sorted list of (feature_name, importance).
-
----
-
-## Models
-
-### `nids.models.HybridNIDS`
-
-Two-tier cascade architecture:
-1.  **Tier 1 (Random Forest)**: Detects known attacks.
-2.  **Tier 2 (Isolation Forest)**: Detects zero-day anomalies in traffic classified as "Normal" by Tier 1.
-
-```python
-from nids.models import HybridNIDS
-
-model = HybridNIDS()
-model.train(X_train, y_train)
-preds, flags = model.predict(X_test)
-```
-
-**Methods:**
-
-- **`train(X_train: np.ndarray, y_train: np.ndarray, normal_label: str = 'Normal')`**
-  - Train both tiers. Tier 2 is trained only on Normal samples.
-
+- **`__init__(vae_params: dict, iforest_params: dict, vae_weight: float = 0.5)`**
+  Constructs dual-model instances. Parameters weight prediction calculations specifically against empirical detection values.
+- **`train(X: np.ndarray)`**
+  Applies simultaneous unsupervised learning parameter allocations against isolation forests and PyTorch dimensions.
 - **`predict(X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]`**
-  - Cascade prediction. Returns `(final_labels, tier_flags)`. 
-  - `tier_flags`: 1 (Tensor 1 decision), 2 (Tier 2 decision).
+  Requires continuous scalar parameters resolved equally and appended against bounded threshold boundaries to execute positive predictions. Outputs the explicit Boolean evaluation matrix coupled with standardized float scores.
 
-- **`predict_with_scores(X: np.ndarray) -> Dict`**
-  - Returns detailed predictions including probabilities and anomaly scores.
+### `nids.models.hybrid.HybridNIDS`
+Provides operational cascade processing dictating Tier 1 limits bridging against Tier 2 constraints.
 
-- **`save(tier1_path: str, tier2_path: str)`**
-  - Save both models to disk.
+- **`__init__(use_stacking: bool = False, use_vae: bool = False, tier1_params: dict = None, tier2_params: dict = None)`**
+  Determines explicit logic mappings for algorithms utilized at prediction inference time. Defaults utilize standard algorithm logic constraints mirroring historical package versions.
+- **`predict(X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]`**
+  Translates evaluation matrices internally bounding high-confidence results. Low probability variables trigger sequential anomaly detector bounds. Emits continuous predictive lists spanning both models alongside tier identification limits.
+- **`predict_with_scores(X: np.ndarray) -> Dict[str, Any]`**
+  Produces detailed JSON schema matrices denoting granular probabilities assigned by all processing systems.
 
-- **`load(tier1_path: str, tier2_path: str, normal_label: str)`**
-  - Load models from disk.
+## 2. Infrastructure Optimization and Selection
 
-### `nids.models.SupervisedModel`
+### `nids.features.selection.FeatureSelector`
+Employs specified computational methodology to establish dominant categorical identifiers inherent to intrusion behavior mathematically.
 
-Wrapper for Tier 1 Random Forest classifier.
+- **`__init__(n_features: int = 20, method: str = 'combined', random_state: int = 42)`**
+  Initializes dimension limiting criteria. Supported target string arguments include `importance`, `rfe`, `shap`, `mutual_info`, and `combined`.
+- **`fit(X: np.ndarray, y: np.ndarray, feature_names: List[str])`**
+  Configures bounds according to the method variables. `'combined'` relies heavily upon structural Borda count calculation frameworks coupling the rankings output by respective methods simultaneously.
+- **`transform(X: np.ndarray) -> np.ndarray`**
+  Splits and removes irrelevant array components according to trained optimization logic limits.
 
-### `nids.models.UnsupervisedModel`
+### `nids.drift.detector.ADWINDriftDetector`
+Calculates dynamic network state modification signaling concept drift within deployment patterns.
 
-Wrapper for Tier 2 Isolation Forest anomaly detector.
+- **`__init__(delta: float = 0.002, on_drift: Callable = None, min_samples: int = 30)`**
+  Establishes standard error-variance tracking mechanisms depending functionally upon the presence of the `river.drift.ADWIN` integration architecture.
+- **`update(error: int) -> bool`**
+  Requires singular values reflecting predictive inaccuracies mapped against target verification constants. Evaluates immediately against internal temporal windows, broadcasting alerts upon excessive variation bounds.
 
----
+### `nids.active_learning.query.UncertaintyDiversityQuery`
+Extracts maximally important datasets leveraging uncertainty measurements for continued manual refinement.
 
-## Evaluation
+- **`__init__(budget: int = 50, uncertainty_pool: int = 500)`**
+  Configures constraints applying directly to sample sizes returned via inference tracking paths.
+- **`select(X_unlabeled: np.ndarray, model: Any) -> np.ndarray`**
+  Extrapolates class distributions defining highest structural uncertainty values via strict Shannon entropy computations, sorting limits subsequently via localized spatial boundary algorithms (K-Means) guaranteeing data variation boundaries.
 
-### `nids.evaluation.NIDSEvaluator`
+## 3. Evaluation Procedures
 
-Security-focused evaluation suite prioritizing Recall (detection rate) and F2-Score.
+### `nids.evaluation.metrics.NIDSEvaluator`
+Calculates extensive standard and specialized performance limitations directly correlated to SOC and standard operational thresholds.
 
-**Methods:**
+- **`evaluate(y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray = None, labels: List[str] = None, normal_label: str = 'Normal', attack_families: Dict[str, List[str]] = None, detect_latency_ms: float = None) -> Dict[str, float]`**
+  Aggregates total matrices formulating categorical performance calculations including precision, recall, F2, MCC, API, and multi-class categorical sub-distributions mapping discrete threat identification statistics.
 
-- **`evaluate(y_true, y_pred, y_proba=None, labels=None, normal_label='Normal') -> Dict`**
-  - Comprehensive evaluation returning accuracy, precision, recall, f1, f2, and confusion matrix.
+## 4. API Deployment Reference
 
-- **`plot_feature_importance(importances, feature_names, top_n=20)`**
-  - Generate feature importance plot.
+The programmatic access variables are bounded inside the FastAPI process container specifications (`deployment/inference_api.py`).
 
-### `nids.evaluation.StatisticalEvaluator`
+### Health Endpoint
+- **Method:** `GET /health`
+- **Description:** Outputs explicit integer configurations surrounding operational uptime strings mitigating deployment disruption tracking.
 
-Implements statistical significance testing (Paired T-test, Wilcoxon) and repeated k-fold cross-validation.
+### Predict Endpoints
+- **Method:** `POST /predict`
+- **Description:** Requires distinct JSON matrices structuring network distribution components. Emits probabilistic evaluation logic spanning explicit threshold limitations. 
+- **Method:** `POST /predict/batch`
+- **Description:** Allows standard HTTP processing frameworks scaled spanning array indices optimized against sequential matrix evaluations.
 
-### `nids.evaluation.CrossDatasetEvaluator`
-
-Evaluates model generalization by training on one dataset and testing on another (e.g., Train on NSL-KDD, Test on CIC-IDS2017).
-
----
-
-## Explainability
-
-### `nids.explainability.SHAPExplainer`
-
-SHAP-based explainability for model interpretability.
-
-**Methods:**
-
-- **`explain_prediction(model, X_sample, feature_names) -> Dict`**
-  - Generate SHAP values for a single prediction.
-
-- **`plot_feature_importance(model, X, feature_names, output_path=None)`**
-  - Plot global SHAP feature importance.
-
----
-
-## Pipelines
-
-### `nids.pipelines.TrainingPipeline`
-
-End-to-end training workflow: Data Loading -> Preprocessing -> SMOTE -> Feature Selection -> Model Training -> Evaluation.
-
-```python
-from nids.pipelines import TrainingPipeline
-
-pipeline = TrainingPipeline('configs/config.yaml')
-pipeline.run()
-```
-
-### `nids.pipelines.InferencePipeline`
-
-Production inference pipeline for simplified prediction on new data.
-
-```python
-from nids.pipelines import InferencePipeline
-
-pipeline = InferencePipeline(model_version='v1.0.0')
-result = pipeline.predict_single(feature_vector)
-```
-
-### `nids.pipelines.EvaluationPipeline`
-
-Pipeline for assessing trained models on independent test sets.
-
----
-
-## Utilities
-
-### `nids.utils.config`
-
-- **`load_config(path) -> Dict`**: Load YAML config.
-- **`save_config(config, path)`**: Save dict to YAML.
-
-### `nids.utils.logging`
-
-- **`setup_logger(name, log_file, level)`**: Configure logging with console and file handlers.
+### Explainability Endpoint
+- **Method:** `POST /explain`
+- **Description:** Produces variable array dependencies calculated linearly via SHAP values, denoting granular significance values applying internally to specific array attributes submitted explicitly via the HTTP logic process variables.

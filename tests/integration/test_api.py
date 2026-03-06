@@ -19,11 +19,15 @@ def _make_mock_pipeline():
         "tier_used": 1,
         "anomaly_score": -0.15,
     }
-    mock.predict_batch.return_value = {
-        "predictions": ["Normal", "DoS"],
-        "tier_used": [1, 1],
-        "anomaly_scores": [-0.15, -0.05],
-    }
+    
+    def predict_batch_mock(features):
+        n = len(features)
+        return {
+            "predictions": ["Normal"] * n,
+            "tier_used": [1] * n,
+            "anomaly_scores": [-0.15] * n,
+        }
+    mock.predict_batch.side_effect = predict_batch_mock
     return mock
 
 

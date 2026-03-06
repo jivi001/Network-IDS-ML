@@ -1,0 +1,223 @@
+name: NIDS MLOps Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly automated retraining — Sunday 02:00 UTC
+    - cron: "0 2 * * 0"
+  workflow_dispatch:
+    inputs:
+      force_retrain:
+        description: "Force full model retraining"
+        required: false
+        default: "false"
+
+env:
+  PYTHON_VERSION: "3.11"
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/nids-api
+
+# ─── Job 1: Lint, Type-check, Security Scan ─────────────────────────────────
+
+jobs:
+  lint-and-security:
+    name: Lint + Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dev tools
+        run: pip install ruff mypy bandit safety
+
+      - name: Ruff lint
+        run: ruff check nids/ scripts/ --select E,W,F,I
+
+      - name: Bandit security scan
+        run: bandit -r nids/ -ll -x nids/__pycache__
+
+      - name: Safety dependency scan
+        run: safety check -r requirements.txt --bare
+        continue-on-error: true # Warn but don't block on transitive vuln
+
+  # ─── Job 2: Unit + Integration Tests ────────────────────────────────────────
+
+  test:
+    name: Tests + Coverage
+    runs-on: ubuntu-latest
+    needs: lint-and-security
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+          pip install pytest pytest-cov httpx lightgbm
+
+      - name: Run test suite with coverage
+        run: |
+          pytest tests/ -v --tb=short \
+                 --cov=nids \
+                 --cov-report=xml \
+                 --cov-report=term-missing \
+                 --cov-fail-under=60
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+
+  # ─── Job 3: Train + Evaluate (on push to main or schedule) ──────────────────
+
+  train-and-evaluate:
+    name: Train + Evaluate Model
+    runs-on: ubuntu-latest
+    needs: test
+    if: |
+      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
+      github.event.inputs.force_retrain == 'true'
+    env:
+      MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI || 'mlruns' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e . lightgbm torch
+
+      # Pull versioned datasets via DVC (if configured)
+      - name: Pull datasets (DVC)
+        run: |
+          pip install dvc
+          dvc pull data/ --no-run-cache || echo "DVC pull skipped (no remote configured)"
+        continue-on-error: true
+
+      - name: Run training pipeline
+        run: |
+          python scripts/train.py \
+            --config configs/training/hardened_rf.yaml \
+            --output experiments/ci_run
+
+      - name: Evaluate against quality gate
+        id: gate
+        run: |
+          python scripts/evaluate_gate.py \
+            --metrics-dir experiments/ci_run \
+            --min-pr-auc 0.90 \
+            --min-f2 0.90 \
+            --min-mcc 0.85 \
+            --output gate_result.json
+          echo "gate_pass=$(python -c \"import json; print(json.load(open('gate_result.json'))['pass'])\")" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Upload experiment artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: experiment-results
+          path: experiments/ci_run/
+          retention-days: 30
+
+      - name: Gate failed — notify
+        if: steps.gate.outputs.gate_pass == 'False'
+        run: |
+          echo "::error::Model quality gate FAILED. Check gate_result.json for details."
+          cat gate_result.json
+          exit 1
+
+  # ─── Job 4: Docker Build + Push ─────────────────────────────────────────────
+
+  build-and-push:
+    name: Build + Push Docker Image
+    runs-on: ubuntu-latest
+    needs: train-and-evaluate
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deployment/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── Job 5: Deploy to Kubernetes (production, manual gate) ──────────────────
+
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production # Requires manual approval in GitHub Environments
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > kubeconfig.yaml
+          export KUBECONFIG=kubeconfig.yaml
+
+      - name: Rolling deployment
+        run: |
+          kubectl set image deployment/nids-api \
+            nids-api=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }} \
+            -n nids-production
+          kubectl rollout status deployment/nids-api \
+            -n nids-production --timeout=300s
+
+      - name: Smoke test
+        run: |
+          python scripts/smoke_test.py \
+            --endpoint ${{ secrets.API_ENDPOINT }} \
+            --timeout 30
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          kubectl rollout undo deployment/nids-api -n nids-production
+          echo "::error::Deployment failed. Rolled back to previous version."

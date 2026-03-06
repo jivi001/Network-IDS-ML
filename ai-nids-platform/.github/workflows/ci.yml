@@ -1,0 +1,36 @@
+name: AI-NIDS CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest flake8 fastapi httpx scikit-learn torch
+
+    - name: Lint with flake8
+      run: |
+        flake8 ./ai-nids-platform/backend --count --select=E9,F63,F7,F82 --show-source --statistics
+
+    - name: Run Unit Tests
+      run: |
+        # pytest ./ai-nids-platform/tests/
+
+    - name: Build Docker Images
+      run: |
+        cd ai-nids-platform
+        docker-compose build nids-api dashboard

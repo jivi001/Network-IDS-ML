@@ -1,12 +1,20 @@
 """
-Hybrid NIDS: Two-tier cascade architecture.
-Tier 1 (Random Forest) → Known attacks
-Tier 2 (Isolation Forest) → Zero-day anomalies
+Hybrid NIDS: 4-tier cascade architecture (upgraded).
+
+  Tier 1 — Known-attack classifier
+           Default:  SupervisedModel (BalancedRandomForestClassifier)
+           Upgraded: StackingEnsemble (BRF + LightGBM + CalibratedSVC + LR meta)
+
+  Tier 2 — Zero-day anomaly detector
+           Default:  UnsupervisedModel (IsolationForest)
+           Upgraded: FusionAnomalyDetector (VAE + IsolationForest fusion)
 
 Cascade Logic:
-  All traffic → Tier 1 → [Attack?] → Alert (immediate)
-                       → [Normal?] → Tier 2 → [Anomaly?] → Zero-Day Alert
-                                             → [Normal?] → Pass
+  All traffic → Tier 1 → [High-conf Attack?] → Immediate Alert
+                       → [Uncertain / Normal] → Tier 2 → [Anomaly?] → Zero-Day Alert
+                                                        → [Normal?] → Pass
+
+Backward-compatible: use_stacking=False and use_vae=False reproduce v1 behaviour.
 """
 
 import numpy as np
@@ -19,31 +27,58 @@ class HybridNIDS:
     """
     Production hybrid intrusion detection system.
 
-    Architecture per research report:
-    - Tier 1: RF trained on SMOTE-balanced, feature-selected data
-    - Tier 2: iForest trained on Normal-only samples from training data
-    - Cascade reduces iForest false positives by pre-filtering known attacks
+    Tier 1: Known-attack classifier — BalancedRF (default) or StackingEnsemble
+    Tier 2: Zero-day detector      — IsolationForest (default) or FusionAnomalyDetector
+
+    Args:
+        rf_params:       Hyperparameters for SupervisedModel (Tier 1 default).
+        iforest_params:  Hyperparameters for UnsupervisedModel (Tier 2 default).
+        stacking_params: Hyperparameters for StackingEnsemble (Tier 1 upgraded).
+        fusion_params:   Hyperparameters for FusionAnomalyDetector (Tier 2 upgraded).
+        use_stacking:    If True, use StackingEnsemble as Tier 1 (slower train, higher accuracy).
+        use_vae:         If True, use FusionAnomalyDetector as Tier 2 (VAE + IForest fusion).
+        random_state:    Global seed for reproducibility.
     """
 
     def __init__(
         self,
         rf_params: Dict = None,
         iforest_params: Dict = None,
-        random_state: int = 42
+        stacking_params: Dict = None,
+        fusion_params: Dict = None,
+        use_stacking: bool = False,
+        use_vae: bool = False,
+        random_state: int = 42,
     ):
         self.random_state = random_state
+        self.use_stacking = use_stacking
+        self.use_vae = use_vae
 
-        rf_params = rf_params or {}
-        iforest_params = iforest_params or {}
-        
-        # Set random_state if not already in params
-        if 'random_state' not in rf_params:
-            rf_params['random_state'] = random_state
-        if 'random_state' not in iforest_params:
-            iforest_params['random_state'] = random_state
+        # ── Tier 1 ────────────────────────────────────────────────────────
+        if use_stacking:
+            from nids.models.stacking import StackingEnsemble
+            stacking_params = stacking_params or {}
+            stacking_params.setdefault('random_state', random_state)
+            self.tier1_model = StackingEnsemble(**stacking_params)
+            print("[HybridNIDS] Tier 1: StackingEnsemble (BRF + LightGBM + CalibratedSVC)")
+        else:
+            rf_params = rf_params or {}
+            rf_params.setdefault('random_state', random_state)
+            self.tier1_model = SupervisedModel(**rf_params)
+            print("[HybridNIDS] Tier 1: BalancedRandomForestClassifier")
 
-        self.tier1_model = SupervisedModel(**rf_params)
-        self.tier2_model = UnsupervisedModel(**iforest_params)
+        # ── Tier 2 ────────────────────────────────────────────────────────
+        if use_vae:
+            from nids.models.anomaly import FusionAnomalyDetector
+            fusion_params = fusion_params or {}
+            fusion_params.setdefault('random_state', random_state)
+            self.tier2_model = FusionAnomalyDetector(**fusion_params)
+            print("[HybridNIDS] Tier 2: FusionAnomalyDetector (VAE + IsolationForest)")
+        else:
+            iforest_params = iforest_params or {}
+            iforest_params.setdefault('random_state', random_state)
+            self.tier2_model = UnsupervisedModel(**iforest_params)
+            print("[HybridNIDS] Tier 2: IsolationForest")
 
         self.normal_label = None
         self.is_trained = False
@@ -70,9 +105,10 @@ class HybridNIDS:
         print("=" * 50)
         self.tier1_model.train(X_train, y_train)
 
-        # === TIER 2: Train iForest on NORMAL traffic ONLY ===
+        # === TIER 2: Train anomaly detector on NORMAL traffic ONLY ===
+        tier2_label = "FusionAnomalyDetector" if self.use_vae else "IsolationForest"
         print("\n" + "=" * 50)
-        print("TIER 2: Training Isolation Forest")
+        print(f"TIER 2: Training {tier2_label}")
         print("=" * 50)
 
         normal_mask = (y_train == normal_label)
@@ -166,12 +202,24 @@ class HybridNIDS:
 
     def save(self, tier1_path: str, tier2_path: str):
         self.tier1_model.save(tier1_path)
-        self.tier2_model.save(tier2_path)
+        if self.use_vae:
+            # FusionAnomalyDetector has separate save paths for VAE + IForest
+            import os
+            vae_path = tier2_path.replace('.pkl', '_vae.pt')
+            if_path  = tier2_path.replace('.pkl', '_iforest.pkl')
+            self.tier2_model.save(vae_path, if_path)
+        else:
+            self.tier2_model.save(tier2_path)
         print(f"[HybridNIDS] System saved")
 
     def load(self, tier1_path: str, tier2_path: str, normal_label: str):
         self.tier1_model.load(tier1_path)
-        self.tier2_model.load(tier2_path)
+        if self.use_vae:
+            vae_path = tier2_path.replace('.pkl', '_vae.pt')
+            if_path  = tier2_path.replace('.pkl', '_iforest.pkl')
+            self.tier2_model.load(vae_path, if_path)
+        else:
+            self.tier2_model.load(tier2_path)
         self.normal_label = normal_label
         self.is_trained = True
         print(f"[HybridNIDS] System loaded")
