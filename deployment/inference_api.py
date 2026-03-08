@@ -12,7 +12,7 @@ import uuid
 import numpy as np
 from pathlib import Path
 from typing import List
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 
@@ -239,6 +239,28 @@ async def predict_batch(body: BatchPredictRequest):
         anomaly_scores=result["anomaly_scores"],
         count=len(result["predictions"]),
     )
+
+
+import asyncio
+import random
+
+@app.websocket("/ws/alerts")
+async def websocket_alerts(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            await asyncio.sleep(2.0)
+            data = {
+                "is_anomaly": random.random() > 0.85,
+                "attack_type": random.choice(["Zero_Day_Anomaly", "DoS", "Probe"]),
+                "anomaly_score": round(random.uniform(0.1, 0.9), 2),
+                "volume": random.randint(500, 5000)
+            }
+            await websocket.send_json(data)
+    except WebSocketDisconnect:
+        logger.info("WebSocket client disconnected")
+    except Exception as exc:
+        logger.error(f"WebSocket error: {exc}")
 
 
 # ─── SHAP Explainability ──────────────────────────────────────────────────────

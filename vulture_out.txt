@@ -1,2 +1,0 @@
-scripts\download_data.py:15: unused import 'hashlib' (90% confidence)
-scripts\download_data.py:18: unused import 'zipfile' (90% confidence)
