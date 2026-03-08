@@ -74,28 +74,36 @@ class TrainingPipeline:
         """Core pipeline logic, optionally under an active MLflow run."""
         # 1. Load data
         X_train, y_train, X_test, y_test = self._load_data()
-        
-        # 2. Preprocess
+
+        # 2. Preprocess  (fit only on train to prevent leakage)
         X_train_processed, X_test_processed = self._preprocess(X_train, X_test)
-        
-        # 3. Feature selection (BEFORE any sampling)
+
+        # 3. Feature selection (fit only on processed train, BEFORE sampling)
+        #    Fitting BEFORE SMOTE avoids inflating feature importance with
+        #    synthetic samples — the selector should see the natural distribution.
         X_train_selected, X_test_selected = self._select_features(
             X_train_processed, y_train, X_test_processed
         )
-        
-        # 4. Train models (BalancedRandomForest handles imbalance natively)
+
+        # 4. Apply SMOTE on selected features (train-only, AFTER selection).
+        #    BalancedRandomForest also handles imbalance internally, but SMOTE
+        #    additionally generates synthetic minority-class samples that help
+        #    Tier-2 IsolationForest see a richer distribution.
+        X_train_selected, y_train = self._apply_smote(X_train_selected, y_train)
+
+        # 5. Train models
         model = self._train_models(X_train_selected, y_train)
-        
-        # 5. Evaluate
+
+        # 6. Evaluate
         metrics = self._evaluate(model, X_test_selected, y_test)
-        
-        # 6. Save artifacts
+
+        # 7. Save artifacts
         self._save_artifacts(model, metrics)
 
-        # 7. Log to MLflow
+        # 8. Log to MLflow
         if use_mlflow:
             self._log_to_mlflow(metrics)
-        
+
         self.logger.info(f"Experiment complete: {self.experiment_id}")
         return self.experiment_id, metrics
     
@@ -177,16 +185,26 @@ class TrainingPipeline:
         tier2_config = load_config(self.config['models']['tier2']['config'])
 
         # --- Optional cross-validation (Tier 1 only, fast diagnostic) ---
+        # FIX: Use BalancedRandomForestClassifier for CV so scores match the
+        #      production model.  Standard RandomForestClassifier on imbalanced
+        #      data over-estimates precision and under-estimates recall.
         if self.config.get('training', {}).get('cross_validate', False):
+            from imblearn.ensemble import BalancedRandomForestClassifier as BRF
             n_folds = self.config['training'].get('cv_folds', 5)
-            self.logger.info(f"Running {n_folds}-fold stratified cross-validation...")
+            self.logger.info(f"Running {n_folds}-fold stratified CV (BalancedRF)...")
             rf_params = {**tier1_config['hyperparameters']}
             rf_params.setdefault('random_state', self.config['dataset'].get('random_state', 42))
-            cv_model = RandomForestClassifier(**rf_params)
-            cv = StratifiedKFold(n_splits=n_folds, shuffle=True,
-                                  random_state=self.config['dataset'].get('random_state', 42))
-            cv_scores = cross_val_score(cv_model, X_train, y_train, cv=cv,
-                                        scoring='recall_weighted', n_jobs=-1)
+            # Remove params not accepted by BalancedRF (defensive)
+            rf_params.pop('class_weight', None)
+            cv_model = BRF(**rf_params)
+            cv = StratifiedKFold(
+                n_splits=n_folds, shuffle=True,
+                random_state=self.config['dataset'].get('random_state', 42)
+            )
+            cv_scores = cross_val_score(
+                cv_model, X_train, y_train, cv=cv,
+                scoring='recall_weighted', n_jobs=-1
+            )
             self.logger.info(
                 f"CV Recall (weighted): {cv_scores.mean():.4f} ± {cv_scores.std():.4f}"
             )
@@ -249,37 +267,39 @@ class TrainingPipeline:
     def _save_artifacts(self, model, metrics):
         """Save all experiment artifacts."""
         import joblib
-        
+
+        # FIX: Define models_dir unconditionally so downstream code (feature
+        #      list saving) never hits a NameError when save_models=False.
+        models_dir = self.output_dir / 'models'
+
         # Save models
         if self.config['output'].get('save_models', True):
-            models_dir = self.output_dir / 'models'
             models_dir.mkdir(exist_ok=True)
             model.save(
                 str(models_dir / 'tier1_rf.pkl'),
                 str(models_dir / 'tier2_iforest.pkl')
             )
-            
+
             # Save preprocessor and selector
             if self.config['training'].get('save_preprocessor', True):
                 joblib.dump(self.preprocessor, models_dir / 'preprocessor.pkl')
             if self.config['training'].get('save_feature_selector', True):
                 joblib.dump(self.selector, models_dir / 'feature_selector.pkl')
-        
+
         # Save config snapshot
         with open(self.output_dir / 'config.yaml', 'w') as f:
             yaml.dump(self.config, f, default_flow_style=False)
-        
-        # Save metrics
-        if self.config['output'].get('save_metrics', True):
-            with open(self.output_dir / 'metrics.json', 'w') as f:
-                json.dump(metrics, f, indent=2)
-        
+
+        # Save metrics (always — gate script depends on metrics.json)
+        with open(self.output_dir / 'metrics.json', 'w') as f:
+            json.dump(metrics, f, indent=2)
+
         # Save metadata
         metadata = {
             'experiment_id': self.experiment_id,
             'timestamp': datetime.now().isoformat(),
             'dataset': self.config['dataset']['name'],
-            'config_path': str(self.output_dir / 'config.yaml')
+            'config_path': str(self.output_dir / 'config.yaml'),
         }
         with open(self.output_dir / 'metadata.json', 'w') as f:
             json.dump(metadata, f, indent=2)
@@ -288,15 +308,23 @@ class TrainingPipeline:
         if hasattr(self, 'selector') and self.selector is not None:
             feature_list = self.selector.get_selected_names()
             features_path = models_dir / 'features.json'
-            with open(features_path, 'w') as f:
-                json.dump({'features': feature_list, 'n_features': len(feature_list)}, f, indent=2)
-            self.logger.info(f"Feature list saved: {features_path}")
+            # Guard: only write if models_dir was actually created
+            if models_dir.exists():
+                with open(features_path, 'w') as f:
+                    json.dump(
+                        {'features': feature_list, 'n_features': len(feature_list)}, f, indent=2
+                    )
+                self.logger.info(f"Feature list saved: {features_path}")
 
-        # Save CV scores if available
+        # Save CV scores if available (update metrics dict *after* writing JSON
+        # so the file on disk matches the returned dict)
         if hasattr(self, 'cv_scores') and self.cv_scores is not None:
             metrics['cv_recall_mean'] = float(np.mean(self.cv_scores))
             metrics['cv_recall_std'] = float(np.std(self.cv_scores))
             metrics['cv_recall_scores'] = self.cv_scores
+            # Re-write metrics with CV data
+            with open(self.output_dir / 'metrics.json', 'w') as f:
+                json.dump(metrics, f, indent=2)
 
         self.logger.info(f"Artifacts saved to {self.output_dir}")
 

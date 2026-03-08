@@ -109,15 +109,26 @@ class NIDSEvaluator:
 
         # --- Classification Report ---
         print("\n--- Per-Class Classification Report ---")
+        # Derive labels dynamically to avoid a mismatch between `target_names`
+        # and the actual number of unique classes in y_true / y_pred.
+        actual_classes = sorted(set(np.concatenate([
+            np.asarray(y_true).ravel(),
+            np.asarray(y_pred).ravel()
+        ])).difference({None}), key=str)
+        if labels is not None and len(labels) == len(actual_classes):
+            report_labels = labels
+        else:
+            report_labels = [str(c) for c in actual_classes]
+
         report = classification_report(
-            y_true, y_pred, target_names=labels,
+            y_true, y_pred, labels=actual_classes, target_names=report_labels,
             zero_division=0, output_dict=False
         )
         print(report)
 
         # --- Confusion Matrix ---
-        cm = confusion_matrix(y_true, y_pred, labels=labels)
-        self._plot_confusion_matrix(cm, labels)
+        cm = confusion_matrix(y_true, y_pred, labels=actual_classes)
+        self._plot_confusion_matrix(cm, report_labels)
 
         # --- Overall Weighted Metrics ---
         recall    = recall_score(y_true, y_pred, average='weighted', zero_division=0)

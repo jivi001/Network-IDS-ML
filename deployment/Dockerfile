@@ -18,7 +18,7 @@ COPY --from=builder /build/wheels /wheels
 RUN pip install --no-cache /wheels/*
 
 # Copy Project Code
-COPY setup.py .
+COPY pyproject.toml .
 COPY README.md .
 COPY requirements.txt .
 COPY nids/ ./nids/

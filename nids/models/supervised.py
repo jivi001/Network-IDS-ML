@@ -44,10 +44,17 @@ class SupervisedModel:
         self.is_trained = False
 
     def train(self, X: np.ndarray, y: np.ndarray):
-        """Train on preprocessed, SMOTE-balanced data."""
+        """Train on preprocessed features.
+
+        BalancedRandomForestClassifier handles class imbalance internally
+        via under-sampling.  If SMOTE was applied upstream (controlled by
+        the training config ``apply_smote`` flag), X will additionally
+        contain synthetic minority-class samples.
+        """
         self.model.fit(X, y)
         self.is_trained = True
         print(f"[Tier1-RF] Trained on {X.shape[0]} samples, {X.shape[1]} features")
+
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         if not self.is_trained:

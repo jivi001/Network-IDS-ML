@@ -14,8 +14,19 @@ from nids.utils.logging import setup_logger
 
 
 class EvaluationPipeline:
-    """Evaluation pipeline for trained NIDS models."""
-    
+    """Evaluation pipeline for trained NIDS models.
+
+    Args:
+        model_dir: Path to the **experiment root** directory produced by
+                   TrainingPipeline, e.g.:
+                   ``experiments/runs/unsw_nb15_baseline_20260308_102805``
+                   The pipeline internally appends ``models/`` to resolve
+                   artifact paths.  Do NOT pass the ``models/`` subdirectory
+                   itself or you will get a double-nested path error.
+        output_dir: Where to write evaluation artefacts (confusion matrix,
+                    PR curve, etc.).  Defaults to ``<model_dir>/../evaluation``.
+    """
+
     def __init__(self, model_dir: str, output_dir: str = None):
         self.model_dir = Path(model_dir)
         self.output_dir = Path(output_dir) if output_dir else self.model_dir.parent / 'evaluation'
@@ -57,45 +68,73 @@ class EvaluationPipeline:
         
         # Evaluate
         evaluator = NIDSEvaluator(output_dir=str(self.output_dir))
-        # Add Zero_Day_Anomaly to labels
-        all_labels = sorted(set(y_test.values) | {'Zero_Day_Anomaly'})
+
+        # FIX: Only include synthetic Tier-2 labels (Zero_Day_Anomaly,
+        # Suspicious_Low_Conf_Attack) when they ACTUALLY appear in predictions.
+        # Forcing zero-support labels into the report collapses macro-avg F1
+        # from ~0.99 to ~0.48, which misleads automated gates and researchers.
+        predicted_set = set(predictions)
+        truth_set = set(y_test.values)
+        synthetic_classes = {'Zero_Day_Anomaly', 'Suspicious_Low_Conf_Attack'}
+        active_synthetic = predicted_set & synthetic_classes
+        all_labels = sorted(truth_set | active_synthetic)
+
+        if active_synthetic:
+            self.logger.info(
+                f"Tier-2 synthetic labels present in predictions: {active_synthetic}"
+            )
 
         metrics = evaluator.evaluate(
             y_true=y_test.values,
             y_pred=predictions,
             y_proba=detailed['tier1_probabilities'],
             labels=all_labels,
-            normal_label='Normal'
+            normal_label='Normal',
         )
-        
+
         # Save results
         with open(self.output_dir / 'evaluation_metrics.json', 'w') as f:
             json.dump(metrics, f, indent=2)
-        
-        self.logger.info(f"Evaluation complete: Recall={metrics['recall']:.4f}")
+
+        recall_val = metrics.get('recall', float('nan'))
+        self.logger.info(f"Evaluation complete: Recall={recall_val:.4f}")
         return metrics
+
     
     def _load_model(self):
-        """Load trained model."""
-        tier1_path = self.model_dir / 'tier1_rf.pkl'
-        tier2_path = self.model_dir / 'tier2_iforest.pkl'
-        
+        """Load trained model from model_dir/models/."""
+        models_dir = self.model_dir / 'models'
+        tier1_path = models_dir / 'tier1_rf.pkl'
+        tier2_path = models_dir / 'tier2_iforest.pkl'
+
+        for p in (tier1_path, tier2_path):
+            if not p.exists():
+                raise FileNotFoundError(
+                    f"Model artefact not found: {p}\n"
+                    "Hint: pass the experiment ROOT directory to EvaluationPipeline, "
+                    "not the 'models/' subdirectory."
+                )
+
         model = HybridNIDS()
         model.load(str(tier1_path), str(tier2_path), normal_label='Normal')
         return model
-    
+
     def _load_preprocessor(self):
-        """Load preprocessor."""
-        path = self.model_dir / 'preprocessor.pkl'
+        """Load preprocessor from model_dir/models/preprocessor.pkl."""
+        path = self.model_dir / 'models' / 'preprocessor.pkl'
+        if not path.exists():
+            raise FileNotFoundError(f"Preprocessor not found: {path}")
         return joblib.load(path)
-    
+
     def _load_selector(self):
-        """Load feature selector."""
-        path = self.model_dir / 'feature_selector.pkl'
+        """Load feature selector from model_dir/models/feature_selector.pkl."""
+        path = self.model_dir / 'models' / 'feature_selector.pkl'
+        if not path.exists():
+            raise FileNotFoundError(f"Feature selector not found: {path}")
         return joblib.load(path)
-    
-    def _load_test_data(self, test_data_path, dataset_type):
-        """Load test dataset."""
+
+    def _load_test_data(self, test_data_path: str, dataset_type: str):
+        """Load test dataset and split features/labels."""
         loader = DataLoader(dataset_type=dataset_type)
         df = loader.load_csv(test_data_path)
         return loader.split_features_labels(df)

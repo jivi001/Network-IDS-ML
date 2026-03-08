@@ -44,7 +44,7 @@ jobs:
         run: bandit -r nids/ -ll -x nids/__pycache__
 
       - name: Safety dependency scan
-        run: safety check -r requirements.txt --bare
+        run: safety check -r requirements.txt
         continue-on-error: true # Warn but don't block on transitive vuln
 
   # ─── Job 2: Unit + Integration Tests ────────────────────────────────────────
@@ -101,7 +101,10 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -e . lightgbm torch
+        run: pip install -e . lightgbm
+        # NOTE: torch (~2 GB) is excluded from CI to prevent timeout.
+        # The default pipeline uses BalancedRandomForest (no torch required).
+        # Add torch only if use_vae=True is in the training config.
 
       # Pull versioned datasets via DVC (if configured)
       - name: Pull datasets (DVC)
@@ -113,7 +116,7 @@ jobs:
       - name: Run training pipeline
         run: |
           python scripts/train.py \
-            --config configs/training/hardened_rf.yaml \
+            --config configs/training/unsw_nb15.yaml \
             --output experiments/ci_run
 
       - name: Evaluate against quality gate

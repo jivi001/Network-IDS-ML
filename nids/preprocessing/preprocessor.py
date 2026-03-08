@@ -67,11 +67,20 @@ class NIDSPreprocessor:
         # Encode categoricals for fitting imputer/scaler
         X_encoded = self._encode_categorical(X)
 
-        # 3. Fit imputer then scaler
+        # 3. Drop columns that are entirely NaN (imputer will skip them and
+        #    cause a shape mismatch).  Store surviving column names.
+        all_nan_cols = X_encoded.columns[X_encoded.isna().all()].tolist()
+        if all_nan_cols:
+            warnings.warn(
+                f"Dropping entirely-NaN columns before imputation: {all_nan_cols}"
+            )
+            X_encoded = X_encoded.drop(columns=all_nan_cols)
+        self.imputer_cols_ = X_encoded.columns.tolist()
+
         self.imputer.fit(X_encoded)
         X_imputed = pd.DataFrame(
             self.imputer.transform(X_encoded),
-            columns=X_encoded.columns
+            columns=self.imputer_cols_
         )
         self.scaler.fit(X_imputed)
 
@@ -98,8 +107,10 @@ class NIDSPreprocessor:
         # Encode using stored frequency encoders
         X_encoded = self._encode_categorical(X)
 
-        # Impute + Scale
-        X_imputed = self.imputer.transform(X_encoded)
+        # Impute + Scale — select only columns the imputer was fitted on
+        imputer_cols = getattr(self, 'imputer_cols_', X_encoded.columns.tolist())
+        X_for_impute = X_encoded[imputer_cols]
+        X_imputed = self.imputer.transform(X_for_impute)
         # Cast to float32 for optimization
         X_scaled = self.scaler.transform(X_imputed).astype(np.float32)
 
