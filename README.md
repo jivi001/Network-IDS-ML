@@ -37,13 +37,25 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-### 2. Model Training
+### 2. Model Training and MLOps Retraining Loop
 
 Expects `NSL-KDD` or `UNSW-NB15` datasets in `data/raw/`.
+
+The CI/CD pipeline runs a multi-step operation to enforce continuous training checks:
+
+1. **Train** the parameters:
 
 ```bash
 python scripts/train.py --config configs/training/hardened_rf.yaml
 ```
+
+2. **Evaluate** against strict MLOps baselines (Reject if metrics regression occurs):
+
+```bash
+python scripts/gate.py --metrics experiments/runs/latest/metrics.json --config configs/training/eval_thresholds.yaml
+```
+
+3. **Deploy** if the gate returns an exit code of `0`.
 
 ### 3. Backend API
 

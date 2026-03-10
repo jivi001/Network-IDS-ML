@@ -79,34 +79,26 @@ class TrainingPipeline:
         X_train_processed, X_test_processed = self._preprocess(X_train, X_test)
 
         # 3. Feature selection (fit only on processed train, BEFORE sampling)
-        #    Fitting BEFORE SMOTE avoids inflating feature importance with
-        #    synthetic samples — the selector should see the natural distribution.
         X_train_selected, X_test_selected = self._select_features(
             X_train_processed, y_train, X_test_processed
         )
 
-        # 4. Apply SMOTE on selected features (train-only, AFTER selection).
-        #    BalancedRandomForest also handles imbalance internally, but SMOTE
-        #    additionally generates synthetic minority-class samples that help
-        #    Tier-2 IsolationForest see a richer distribution.
-        X_train_selected, y_train = self._apply_smote(X_train_selected, y_train)
-
-        # 5. Train models
+        # 4. Train models (SMOTE occurs internally to prevent CV leakage)
         model = self._train_models(X_train_selected, y_train)
 
-        # 6. Evaluate
+        # 5. Evaluate
         metrics = self._evaluate(model, X_test_selected, y_test)
 
-        # 7. Save artifacts
+        # 6. Save artifacts
         self._save_artifacts(model, metrics)
 
-        # 8. Log to MLflow
+        # 7. Log to MLflow
         if use_mlflow:
             self._log_to_mlflow(metrics)
 
         self.logger.info(f"Experiment complete: {self.experiment_id}")
         return self.experiment_id, metrics
-    
+
     def _load_data(self):
         """Load and split dataset."""
         dataset_config = self.config['dataset']
@@ -190,27 +182,51 @@ class TrainingPipeline:
         #      data over-estimates precision and under-estimates recall.
         if self.config.get('training', {}).get('cross_validate', False):
             from imblearn.ensemble import BalancedRandomForestClassifier as BRF
+            from sklearn.metrics import recall_score
             n_folds = self.config['training'].get('cv_folds', 5)
             self.logger.info(f"Running {n_folds}-fold stratified CV (BalancedRF)...")
             rf_params = {**tier1_config['hyperparameters']}
             rf_params.setdefault('random_state', self.config['dataset'].get('random_state', 42))
-            # Remove params not accepted by BalancedRF (defensive)
             rf_params.pop('class_weight', None)
-            cv_model = BRF(**rf_params)
+            
             cv = StratifiedKFold(
                 n_splits=n_folds, shuffle=True,
                 random_state=self.config['dataset'].get('random_state', 42)
             )
-            cv_scores = cross_val_score(
-                cv_model, X_train, y_train, cv=cv,
-                scoring='recall_weighted', n_jobs=-1
-            )
+            
+            cv_scores = []
+            
+            # Using basic indexing if array, or df indexing if dataframe
+            is_df = hasattr(X_train, 'iloc')
+            for train_idx, val_idx in cv.split(X_train, y_train):
+                # Split fold
+                X_tr = X_train.iloc[train_idx] if is_df else X_train[train_idx]
+                y_tr = y_train.iloc[train_idx] if hasattr(y_train, 'iloc') else y_train[train_idx]
+                X_va = X_train.iloc[val_idx] if is_df else X_train[val_idx]
+                y_va = y_train.iloc[val_idx] if hasattr(y_train, 'iloc') else y_train[val_idx]
+                
+                # Apply SMOTE *only* to the training fold
+                X_tr_smote, y_tr_smote = self._apply_smote(X_tr, y_tr)
+                
+                # Train and eval
+                cv_model = BRF(**rf_params)
+                cv_model.fit(X_tr_smote, y_tr_smote)
+                preds = cv_model.predict(X_va)
+                
+                # weighted recall mimics 'recall_weighted' from cross_val_score
+                fold_recall = recall_score(y_va, preds, average='weighted')
+                cv_scores.append(fold_recall)
+
+            cv_scores = np.array(cv_scores)
             self.logger.info(
                 f"CV Recall (weighted): {cv_scores.mean():.4f} ± {cv_scores.std():.4f}"
             )
             self.cv_scores = cv_scores.tolist()
         else:
             self.cv_scores = None
+
+        # 4b. Apply SMOTE for the entire training set for the final model build
+        X_train_final, y_train_final = self._apply_smote(X_train, y_train)
 
         model = HybridNIDS(
             rf_params=tier1_config['hyperparameters'],
@@ -219,7 +235,7 @@ class TrainingPipeline:
         )
         
         model.train(
-            X_train, y_train,
+            X_train_final, y_train_final,
             normal_label=self.config['training'].get('normal_label', 'Normal')
         )
 
@@ -275,16 +291,9 @@ class TrainingPipeline:
         # Save models
         if self.config['output'].get('save_models', True):
             models_dir.mkdir(exist_ok=True)
-            model.save(
-                str(models_dir / 'tier1_rf.pkl'),
-                str(models_dir / 'tier2_iforest.pkl')
-            )
-
-            # Save preprocessor and selector
-            if self.config['training'].get('save_preprocessor', True):
-                joblib.dump(self.preprocessor, models_dir / 'preprocessor.pkl')
-            if self.config['training'].get('save_feature_selector', True):
-                joblib.dump(self.selector, models_dir / 'feature_selector.pkl')
+            from nids.models.unified import UnifiedHybridModel
+            unified_model = UnifiedHybridModel(self.preprocessor, self.selector, model)
+            unified_model.save(str(models_dir))
 
         # Save config snapshot
         with open(self.output_dir / 'config.yaml', 'w') as f:

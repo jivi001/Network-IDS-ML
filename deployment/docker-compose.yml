@@ -1,26 +1,51 @@
-# Docker Compose for NIDS Deployment
-
 version: '3.8'
 
 services:
-  nids-inference:
-    build:
-      context: ..
+  inference_api:
+    build: 
+      context: ../
       dockerfile: deployment/Dockerfile
     container_name: nids-inference
     ports:
       - "8000:8000"
+    environment:
+      - MODEL_DIR=/app/models/production
+      - MODEL_VERSION=v1.0.0
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis:6379
+      - BROKER_URL=redis://redis:6379
     volumes:
       - ../models/production:/app/models/production:ro
-      - ../logs:/app/logs
-    environment:
-      - MODEL_VERSION=v1.0.0
-      - LOG_LEVEL=INFO
-      - PYTHONUNBUFFERED=1
-    restart: unless-stopped
+    depends_on:
+      - redis
     healthcheck:
-      test: [ "CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')" ]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 30s
-      timeout: 3s
+      timeout: 5s
       retries: 3
       start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: nids-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: nids-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - inference_api
+    restart: unless-stopped

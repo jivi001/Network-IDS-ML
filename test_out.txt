@@ -1,0 +1,110 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.12, pytest-9.0.2, pluggy-1.6.0
+rootdir: E:\NIDS-ML
+configfile: pytest.ini (WARNING: ignoring pytest config in pyproject.toml!)
+plugins: anyio-4.12.1, cov-7.0.0
+collected 20 items
+
+tests\unit\test_inference.py ..FFF..                                     [ 35%]
+tests\integration\test_api.py .............                              [100%]
+
+================================== FAILURES ===================================
+___________ TestInferencePipeline.test_predict_single_required_keys ___________
+
+self = <test_inference.TestInferencePipeline object at 0x00000267D4773CE0>
+pipeline_and_sample = (<nids.pipelines.inference.InferencePipeline object at 0x00000267F1BBFE00>,    duration   src_bytes  dst_bytes  land  ...9584  725.25428   0.0             0.0, <nids.preprocessing.preprocessor.NIDSPreprocessor object at 0x00000267F6A89160>)
+
+    def test_predict_single_required_keys(self, pipeline_and_sample):
+        pipeline, sample, _ = pipeline_and_sample
+        result = pipeline.predict_single(sample)
+        required = {"prediction", "confidence", "tier_used", "anomaly_score"}
+>       assert required.issubset(result.keys())
+E       AssertionError: assert False
+E        +  where False = <built-in method issubset of set object at 0x00000267F6EF99A0>(dict_keys(['predictions', 'tier_used', 'anomaly_scores', 'confidence']))
+E        +    where <built-in method issubset of set object at 0x00000267F6EF99A0> = {'anomaly_score', 'confidence', 'prediction', 'tier_used'}.issubset
+E        +    and   dict_keys(['predictions', 'tier_used', 'anomaly_scores', 'confidence']) = <built-in method keys of dict object at 0x00000267F6F1D8C0>()
+E        +      where <built-in method keys of dict object at 0x00000267F6F1D8C0> = {'anomaly_scores': [0.06398059489362584], 'confidence': [0.8654166666666666], 'predictions': ['Normal'], 'tier_used': [2]}.keys
+
+tests\unit\test_inference.py:86: AssertionError
+__________ TestInferencePipeline.test_predict_single_label_is_string __________
+
+self = <test_inference.TestInferencePipeline object at 0x00000267F6975810>
+pipeline_and_sample = (<nids.pipelines.inference.InferencePipeline object at 0x00000267F1BBFE00>,    duration   src_bytes  dst_bytes  land  ...9584  725.25428   0.0             0.0, <nids.preprocessing.preprocessor.NIDSPreprocessor object at 0x00000267F6A89160>)
+
+    def test_predict_single_label_is_string(self, pipeline_and_sample):
+        pipeline, sample, _ = pipeline_and_sample
+        result = pipeline.predict_single(sample)
+>       assert isinstance(result["prediction"], str)
+                          ^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'prediction'
+
+tests\unit\test_inference.py:91: KeyError
+________ TestInferencePipeline.test_predict_single_confidence_in_range ________
+
+self = <test_inference.TestInferencePipeline object at 0x00000267F6972F90>
+pipeline_and_sample = (<nids.pipelines.inference.InferencePipeline object at 0x00000267F1BBFE00>,    duration   src_bytes  dst_bytes  land  ...9584  725.25428   0.0             0.0, <nids.preprocessing.preprocessor.NIDSPreprocessor object at 0x00000267F6A89160>)
+
+    def test_predict_single_confidence_in_range(self, pipeline_and_sample):
+        pipeline, sample, _ = pipeline_and_sample
+        result = pipeline.predict_single(sample)
+>       assert 0.0 <= result["confidence"] <= 1.0
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: '<=' not supported between instances of 'float' and 'list'
+
+tests\unit\test_inference.py:96: TypeError
+============================== warnings summary ===============================
+C:\Users\jivit\AppData\Local\Programs\Python\Python313\Lib\site-packages\pythonjsonlogger\jsonlogger.py:11
+  C:\Users\jivit\AppData\Local\Programs\Python\Python313\Lib\site-packages\pythonjsonlogger\jsonlogger.py:11: DeprecationWarning: pythonjsonlogger.jsonlogger has been moved to pythonjsonlogger.json
+    warnings.warn(
+
+tests/unit/test_inference.py::TestInferencePipeline::test_loads_without_error
+tests/unit/test_inference.py::TestInferencePipeline::test_predict_single_returns_dict
+tests/unit/test_inference.py::TestInferencePipeline::test_predict_single_required_keys
+tests/unit/test_inference.py::TestInferencePipeline::test_predict_single_label_is_string
+tests/unit/test_inference.py::TestInferencePipeline::test_predict_single_confidence_in_range
+tests/unit/test_inference.py::TestInferencePipeline::test_predict_batch_returns_dict
+tests/unit/test_inference.py::TestInferencePipeline::test_predict_batch_tier_flags_valid
+  C:\Users\jivit\AppData\Roaming\Python\Python313\site-packages\sklearn\utils\validation.py:2691: UserWarning: X does not have valid feature names, but StandardScaler was fitted with feature names
+    warnings.warn(
+
+tests/integration/test_api.py::TestHealthEndpoint::test_health_returns_200
+tests/integration/test_api.py::TestHealthEndpoint::test_health_returns_200
+  E:\NIDS-ML\deployment\inference_api.py:100: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+tests/integration/test_api.py::TestHealthEndpoint::test_health_returns_200
+tests/integration/test_api.py::TestHealthEndpoint::test_health_returns_200
+  C:\Users\jivit\AppData\Local\Programs\Python\Python313\Lib\site-packages\fastapi\applications.py:4599: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)
+
+tests/integration/test_api.py::TestHealthEndpoint::test_health_returns_200
+tests/integration/test_api.py::TestHealthEndpoint::test_health_returns_200
+  E:\NIDS-ML\deployment\inference_api.py:122: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'example'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    features: List[float] = Field(
+
+tests/integration/test_api.py::TestHealthEndpoint::test_health_returns_200
+tests/integration/test_api.py::TestHealthEndpoint::test_health_returns_200
+  E:\NIDS-ML\deployment\inference_api.py:129: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    @validator("features")
+
+tests/integration/test_api.py::TestHealthEndpoint::test_health_returns_200
+tests/integration/test_api.py::TestHealthEndpoint::test_health_returns_200
+  E:\NIDS-ML\deployment\inference_api.py:149: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    @validator("features")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/unit/test_inference.py::TestInferencePipeline::test_predict_single_required_keys
+FAILED tests/unit/test_inference.py::TestInferencePipeline::test_predict_single_label_is_string
+FAILED tests/unit/test_inference.py::TestInferencePipeline::test_predict_single_confidence_in_range
+================= 3 failed, 17 passed, 18 warnings in 24.67s ==================

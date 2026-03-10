@@ -63,8 +63,8 @@ class TestHealthEndpoint:
         resp = client.get("/health")
         body = resp.json()
         assert "status" in body
-        assert "model_loaded" in body
-        assert body["status"] == "healthy"
+        assert "uptime_seconds" in body
+        assert body["status"] == "ok"
 
     def test_health_uptime_positive(self, client):
         resp = client.get("/health")
@@ -75,11 +75,11 @@ class TestHealthEndpoint:
 
 class TestPredictEndpoint:
     def test_predict_returns_200(self, client):
-        resp = client.post("/predict", json={"features": SAMPLE_FEATURES})
+        resp = client.post("/predict", json={"features": SAMPLE_FEATURES}, headers={"X-API-Key": ""})
         assert resp.status_code == 200
 
     def test_predict_response_schema(self, client):
-        resp = client.post("/predict", json={"features": SAMPLE_FEATURES})
+        resp = client.post("/predict", json={"features": SAMPLE_FEATURES}, headers={"X-API-Key": ""})
         body = resp.json()
         assert "prediction" in body
         assert "confidence" in body
@@ -87,15 +87,15 @@ class TestPredictEndpoint:
         assert "anomaly_score" in body
 
     def test_predict_returns_string_label(self, client):
-        resp = client.post("/predict", json={"features": SAMPLE_FEATURES})
+        resp = client.post("/predict", json={"features": SAMPLE_FEATURES}, headers={"X-API-Key": ""})
         assert isinstance(resp.json()["prediction"], str)
 
     def test_predict_missing_features_returns_422(self, client):
-        resp = client.post("/predict", json={})
+        resp = client.post("/predict", json={}, headers={"X-API-Key": ""})
         assert resp.status_code == 422
 
     def test_predict_empty_features_returns_422(self, client):
-        resp = client.post("/predict", json={"features": []})
+        resp = client.post("/predict", json={"features": []}, headers={"X-API-Key": ""})
         assert resp.status_code == 422
 
     def test_predict_503_when_no_model(self, client):
@@ -103,7 +103,7 @@ class TestPredictEndpoint:
         original = api.pipeline
         api.pipeline = None
         try:
-            resp = client.post("/predict", json={"features": SAMPLE_FEATURES})
+            resp = client.post("/predict", json={"features": SAMPLE_FEATURES}, headers={"X-API-Key": ""})
             assert resp.status_code == 503
         finally:
             api.pipeline = original
@@ -113,11 +113,11 @@ class TestPredictEndpoint:
 
 class TestBatchPredictEndpoint:
     def test_batch_predict_returns_200(self, client):
-        resp = client.post("/predict/batch", json={"features": [SAMPLE_FEATURES, SAMPLE_FEATURES]})
+        resp = client.post("/predict/batch", json={"features": [SAMPLE_FEATURES, SAMPLE_FEATURES]}, headers={"X-API-Key": ""})
         assert resp.status_code == 200
 
     def test_batch_response_schema(self, client):
-        resp = client.post("/predict/batch", json={"features": [SAMPLE_FEATURES, SAMPLE_FEATURES]})
+        resp = client.post("/predict/batch", json={"features": [SAMPLE_FEATURES, SAMPLE_FEATURES]}, headers={"X-API-Key": ""})
         body = resp.json()
         assert "predictions" in body
         assert "tier_used" in body
@@ -126,9 +126,9 @@ class TestBatchPredictEndpoint:
 
     def test_batch_count_matches_input(self, client):
         features = [SAMPLE_FEATURES] * 3
-        resp = client.post("/predict/batch", json={"features": features})
+        resp = client.post("/predict/batch", json={"features": features}, headers={"X-API-Key": ""})
         assert resp.json()["count"] == 3
 
     def test_batch_empty_features_returns_422(self, client):
-        resp = client.post("/predict/batch", json={"features": []})
+        resp = client.post("/predict/batch", json={"features": []}, headers={"X-API-Key": ""})
         assert resp.status_code == 422

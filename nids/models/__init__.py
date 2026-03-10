@@ -5,6 +5,7 @@ from nids.models.unsupervised import UnsupervisedModel
 from nids.models.hybrid import HybridNIDS
 from nids.models.stacking import StackingEnsemble
 from nids.models.anomaly import VAEAnomalyDetector, FusionAnomalyDetector
+from nids.models.unified import UnifiedHybridModel
 
 __all__ = [
     "SupervisedModel",
@@ -13,4 +14,5 @@ __all__ = [
     "StackingEnsemble",
     "VAEAnomalyDetector",
     "FusionAnomalyDetector",
+    "UnifiedHybridModel"
 ]

@@ -12,9 +12,10 @@ import uuid
 import numpy as np
 from pathlib import Path
 from typing import List
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, Security, Depends
+from fastapi.security.api_key import APIKeyHeader
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, confloat
 
 from nids.utils.logging import setup_logger
 from nids.governance.metrics_exporter import (
@@ -30,6 +31,26 @@ from nids.pipelines import InferencePipeline
 
 # SOC JSON Logger
 logger = setup_logger("nids.api")
+
+# ─── Auth ─────────────────────────────────────────────────────────────────────
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+
+def get_api_key(api_key_header: str = Security(api_key_header)):
+    # Simple static logic: read env var NIDS_API_KEY. Default is blank which allows open dev use.
+    expected_api_key = os.getenv("NIDS_API_KEY", "")
+    if expected_api_key and api_key_header != expected_api_key:
+        raise HTTPException(
+            status_code=401, detail="Could not validate credentials"
+        )
+    return api_key_header
+
+# ─── Rate Limiting ────────────────────────────────────────────────────────────
+# Very simple in-memory dict: {ip: [timestamps]}
+from collections import defaultdict
+RATE_LIMIT_DICT = defaultdict(list)
+RATE_LIMIT_MAX_REQUESTS = 600  # max reqs per minute
+RATE_LIMIT_WINDOW = 60         # seconds
 
 # ─── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -51,6 +72,14 @@ async def soc_resilience_middleware(request: Request, call_next):
         
     req_id = str(uuid.uuid4())
     start_time = time.time()
+    
+    # Custom rudimentary Rate Limiting
+    client_ip = request.client.host if request.client else "unknown"
+    now_time = time.time()
+    RATE_LIMIT_DICT[client_ip] = [t for t in RATE_LIMIT_DICT[client_ip] if now_time - t < RATE_LIMIT_WINDOW]
+    if len(RATE_LIMIT_DICT[client_ip]) >= RATE_LIMIT_MAX_REQUESTS:
+        return JSONResponse(status_code=429, content={"error": "Rate limit exceeded"})
+    RATE_LIMIT_DICT[client_ip].append(now_time)
     
     try:
         response = await call_next(request)
@@ -111,26 +140,25 @@ async def startup_event():
         return
     try:
         pipeline = InferencePipeline(model_dir=str(model_path))
-        logger.info(f"Model loaded from: {model_path}")
+        pipeline.model.validate(num_features=20) # ensure it can execute a baseline forward pass
+        logger.info(f"Model loaded and validated from: {model_path}")
     except Exception as exc:
-        logger.error(f"Failed to load model: {exc}")
+        logger.error(f"Failed to load or validate model: {exc}")
+        sys.exit(1) # Fail fast if corruption occurs
 
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
 class PredictRequest(BaseModel):
-    features: List[float] = Field(
+    # Using confloat handles boundary check automatically
+    features: List[confloat(allow_inf_nan=False)] = Field(
         ...,
+        min_items=1,
+        max_items=1000,
         description="Network traffic feature vector (must match training feature count).",
         example=[0.0, 1.0, 0.5, 2.3, 0.1, 0.0, 1.0, 0.5, 2.3, 0.1,
                  0.0, 1.0, 0.5, 2.3, 0.1, 0.0, 1.0, 0.5, 2.3, 0.1],
     )
-
-    @validator("features")
-    def features_must_not_be_empty(cls, v):
-        if len(v) == 0:
-            raise ValueError("features list must not be empty")
-        return v
 
 
 class PredictResponse(BaseModel):
@@ -141,16 +169,12 @@ class PredictResponse(BaseModel):
 
 
 class BatchPredictRequest(BaseModel):
-    features: List[List[float]] = Field(
+    features: List[List[confloat(allow_inf_nan=False)]] = Field(
         ...,
+        min_items=1,
+        max_items=10000, # Block volumetric OOM
         description="List of feature vectors for batch inference.",
     )
-
-    @validator("features")
-    def batch_must_not_be_empty(cls, v):
-        if len(v) == 0:
-            raise ValueError("features list must not be empty")
-        return v
 
 
 class BatchPredictResponse(BaseModel):
@@ -182,18 +206,30 @@ async def log_requests(request: Request, call_next):
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
-@app.get("/health", response_model=HealthResponse, tags=["Health"])
+@app.get("/health", tags=["Health"])
 async def health():
-    """Liveness / readiness probe. Returns 200 when the service is up."""
+    """
+    Liveness probe. Returns 200 immediately to indicate the application server is running.
+    """
+    return {"status": "ok", "uptime_seconds": round(time.time() - _start_time, 2)}
+
+@app.get("/ready", response_model=HealthResponse, tags=["Health"])
+async def ready():
+    """
+    Readiness probe. Returns 200 when the model is initialized and ready.
+    """
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="Model is not loaded.")
+        
     return HealthResponse(
-        status="healthy",
-        model_loaded=pipeline is not None,
+        status="ready",
+        model_loaded=True,
         model_dir=MODEL_DIR,
         uptime_seconds=round(time.time() - _start_time, 2),
     )
 
 
-@app.post("/predict", response_model=PredictResponse, tags=["Inference"])
+@app.post("/predict", response_model=PredictResponse, tags=["Inference"], dependencies=[Depends(get_api_key)])
 async def predict(body: PredictRequest):
     """
     Classify a single network traffic sample.
@@ -206,6 +242,12 @@ async def predict(body: PredictRequest):
 
     try:
         result = pipeline.predict_single(body.features)
+        
+        # Publish alert if anomaly
+        if result["prediction"] != "Normal":
+            alert_payload = generate_alert_payload(body.features, {"prediction": result["prediction"], "anomaly_score": result["anomaly_score"]})
+            await alert_provider.publish(alert_payload)
+            
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
@@ -215,7 +257,7 @@ async def predict(body: PredictRequest):
     return PredictResponse(**result)
 
 
-@app.post("/predict/batch", response_model=BatchPredictResponse, tags=["Inference"])
+@app.post("/predict/batch", response_model=BatchPredictResponse, tags=["Inference"], dependencies=[Depends(get_api_key)])
 async def predict_batch(body: BatchPredictRequest):
     """
     Classify a batch of network traffic samples in a single request.
@@ -227,6 +269,13 @@ async def predict_batch(body: BatchPredictRequest):
     try:
         features = np.array(body.features, dtype=float)
         result = pipeline.predict_batch(features)
+        
+        # Publish alerts for any anomalies
+        for i, pred in enumerate(result["predictions"]):
+            if pred != "Normal":
+                alert_payload = generate_alert_payload(body.features[i], result, index=i)
+                await alert_provider.publish(alert_payload)
+                
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
@@ -242,21 +291,31 @@ async def predict_batch(body: BatchPredictRequest):
 
 
 import asyncio
-import random
+from nids.streaming.alerts import alert_provider, AlertSubscriber
+
+def generate_alert_payload(features, result, index=0):
+    if isinstance(result["prediction"], list):
+        pred_label = result["predictions"][index]
+        anomaly_score = result["anomaly_scores"][index]
+    else:
+        pred_label = result["prediction"]
+        anomaly_score = result["anomaly_score"]
+
+    return {
+        "timestamp": time.time(),
+        "is_anomaly": pred_label != "Normal",
+        "attack_type": pred_label,
+        "anomaly_score": anomaly_score,
+        "volume": len(features) if isinstance(features, list) else 1
+    }
 
 @app.websocket("/ws/alerts")
 async def websocket_alerts(websocket: WebSocket):
     await websocket.accept()
     try:
-        while True:
-            await asyncio.sleep(2.0)
-            data = {
-                "is_anomaly": random.random() > 0.85,
-                "attack_type": random.choice(["Zero_Day_Anomaly", "DoS", "Probe"]),
-                "anomaly_score": round(random.uniform(0.1, 0.9), 2),
-                "volume": random.randint(500, 5000)
-            }
-            await websocket.send_json(data)
+        async with AlertSubscriber() as subscriber:
+            async for message in subscriber:
+                await websocket.send_text(message)
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
     except Exception as exc:
@@ -291,26 +350,8 @@ async def explain(body: PredictRequest):
         # Get prediction first
         result = pipeline.predict_single(body.features)
 
-        # Preprocess the features the same way as predict_single
-        import pandas as pd
-        features = pd.DataFrame(
-            [body.features],
-            columns=pipeline.preprocessor.get_feature_names()
-        )
-        X_proc = pipeline.preprocessor.transform(features)
-        X_sel = pipeline.selector.transform(X_proc)
-
         # Compute SHAP values
-        explainer = SHAPExplainer()
-        feature_names = pipeline.selector.get_selected_names()
-        shap_values = explainer.explain_prediction(
-            pipeline.model.tier1_model.model, X_sel, feature_names
-        )
-
-        # Sort by absolute SHAP value
-        sorted_shap = dict(
-            sorted(shap_values.items(), key=lambda x: abs(x[1]), reverse=True)
-        )
+        sorted_shap = pipeline.model.explain(body.features)
 
         return ExplainResponse(
             prediction=result["prediction"],

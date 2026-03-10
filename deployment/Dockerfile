@@ -20,22 +20,29 @@ RUN pip install --no-cache /wheels/*
 # Copy Project Code
 COPY pyproject.toml .
 COPY README.md .
-COPY requirements.txt .
+# Copy src and deployment resources securely
 COPY nids/ ./nids/
 COPY deployment/ ./deployment/
 COPY configs/ ./configs/
-COPY models/production/ ./models/production/
+# (In an actual CI build, models/production would be mounted or injected)
 
 RUN pip install -e .
 
 EXPOSE 8000
 
+# Set non-root user for security
+RUN useradd -m -u 1000 nids-user
+RUN chown -R nids-user:nids-user /app
+USER nids-user
+
 ENV PYTHONUNBUFFERED=1
 ENV MODEL_VERSION=v1.0.0
+ENV MODEL_DIR=/app/models/production
+ENV PYTHONPATH=/app
 
-# SOC Healthcheck using CURL
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+# SOC Healthcheck using CURL to ensure readiness
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8000/ready || exit 1
 
 # Run via module path
 CMD ["uvicorn", "deployment.inference_api:app", "--host", "0.0.0.0", "--port", "8000"]

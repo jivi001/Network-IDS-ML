@@ -1,0 +1,5 @@
+# Minimal operational thresholds a new model must pass to be promoted to production.
+thresholds:
+  recall: 0.95
+  fpr: 0.05
+  f1_score: 0.90

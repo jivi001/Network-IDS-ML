@@ -46,9 +46,9 @@ def _build_and_save_tiny_model(tmpdir: Path):
     model = HybridNIDS(random_state=0)
     model.train(X_sel, y, normal_label="Normal")
 
-    model.save(str(tmpdir / "tier1_rf.pkl"), str(tmpdir / "tier2_iforest.pkl"))
-    joblib.dump(preprocessor, tmpdir / "preprocessor.pkl")
-    joblib.dump(selector, tmpdir / "feature_selector.pkl")
+    from nids.models.unified import UnifiedHybridModel
+    unified = UnifiedHybridModel(preprocessor, selector, model)
+    unified.save(str(tmpdir))
 
     return X, preprocessor, selector
 
